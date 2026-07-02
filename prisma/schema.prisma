@@ -1,0 +1,80 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  name        String
+  category    Category
+  costPrice   Decimal
+  sellPrice   Decimal
+  isAvailable Boolean  @default(true)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  orderItems  OrderItem[]
+}
+
+enum Category {
+  SNACKS
+  BEVERAGES
+  QUICK_MEALS
+  CHINESE
+  CUSTOM
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  company   String?
+  floor     String?
+  orders    Order[]
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id             String        @id @default(cuid())
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  deliveryWindow DeliveryWindow
+  status         OrderStatus   @default(PLACED)
+  totalAmount    Decimal
+  paymentMethod  PaymentMethod
+  customRequest  String?
+  items          OrderItem[]
+  createdAt      DateTime      @default(now())
+}
+
+enum DeliveryWindow {
+  MORNING_11AM
+  AFTERNOON_4PM
+}
+
+enum OrderStatus {
+  PLACED
+  PREPARING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI_ON_DELIVERY
+}
+
+model OrderItem {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id])
+  menuItemId   String
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity     Int
+  priceAtOrder Decimal
+}

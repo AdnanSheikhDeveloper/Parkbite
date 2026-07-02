@@ -1,0 +1,399 @@
+'use client';
+
+import { useState } from 'react';
+import { RefreshCw, MapPin, Check, Truck, Flame, AlertCircle, ShoppingBag, Phone, Ban } from 'lucide-react';
+import AdminHeader from '@/components/AdminHeader';
+import { advanceOrderStatus, cancelOrder } from './actions';
+import { OrderStatus } from '@prisma/client';
+
+interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  company: string | null;
+}
+
+interface OrderItem {
+  id: string;
+  quantity: number;
+  priceAtOrder: number;
+  menuItem: {
+    id: string;
+    name: string;
+    sellPrice: number;
+  };
+}
+
+interface Order {
+  id: string;
+  deliveryWindow: 'MORNING_11AM' | 'AFTERNOON_4PM';
+  status: OrderStatus;
+  totalAmount: number;
+  paymentMethod: 'CASH' | 'UPI_ON_DELIVERY';
+  customRequest: string | null;
+  createdAt: string;
+  customer: Customer;
+  items: OrderItem[];
+}
+
+interface OrdersDashboardClientProps {
+  initialMorningOrders: Order[];
+  initialAfternoonOrders: Order[];
+  dbError: boolean;
+}
+
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  [OrderStatus.PLACED]: 'Placed',
+  [OrderStatus.PREPARING]: 'Preparing',
+  [OrderStatus.OUT_FOR_DELIVERY]: 'Out for Delivery',
+  [OrderStatus.DELIVERED]: 'Delivered',
+  [OrderStatus.CANCELLED]: 'Cancelled',
+};
+
+const NEXT_ACTION_LABELS: Record<OrderStatus, string | null> = {
+  [OrderStatus.PLACED]: 'Start Preparing',
+  [OrderStatus.PREPARING]: 'Send Out for Delivery',
+  [OrderStatus.OUT_FOR_DELIVERY]: 'Mark as Delivered',
+  [OrderStatus.DELIVERED]: null,
+  [OrderStatus.CANCELLED]: null,
+};
+
+export default function OrdersDashboardClient({
+  initialMorningOrders,
+  initialAfternoonOrders,
+  dbError,
+}: OrdersDashboardClientProps) {
+  const [morningOrders, setMorningOrders] = useState<Order[]>(initialMorningOrders);
+  const [afternoonOrders, setAfternoonOrders] = useState<Order[]>(initialAfternoonOrders);
+  const [updatingIds, setUpdatingIds] = useState<Record<string, boolean>>({});
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Grouping helper
+  const getGroupedOrders = (ordersList: Order[]) => {
+    const groups: Record<string, Order[]> = {};
+    ordersList.forEach((order) => {
+      const key = order.customer.company || 'No Company/Floor Info';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(order);
+    });
+    return groups;
+  };
+
+  const morningGrouped = getGroupedOrders(morningOrders);
+  const afternoonGrouped = getGroupedOrders(afternoonOrders);
+
+  // Totals calculations
+  const getWindowTotals = (ordersList: Order[]) => {
+    const activeOrders = ordersList.filter((o) => o.status !== OrderStatus.CANCELLED);
+    const count = activeOrders.length;
+    const total = activeOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+    return { count, total };
+  };
+
+  const morningTotals = getWindowTotals(morningOrders);
+  const afternoonTotals = getWindowTotals(afternoonOrders);
+
+  // Status transition handler
+  const handleAdvanceStatus = async (orderId: string, currentStatus: OrderStatus, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => {
+    setErrorMsg('');
+    setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
+    try {
+      const result = await advanceOrderStatus(orderId, currentStatus);
+      if (result.success) {
+        // Compute the next state locally
+        const nextStatusMap: Record<OrderStatus, OrderStatus> = {
+          [OrderStatus.PLACED]: OrderStatus.PREPARING,
+          [OrderStatus.PREPARING]: OrderStatus.OUT_FOR_DELIVERY,
+          [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED,
+          [OrderStatus.DELIVERED]: OrderStatus.DELIVERED,
+          [OrderStatus.CANCELLED]: OrderStatus.CANCELLED,
+        };
+        const nextStatus = nextStatusMap[currentStatus];
+
+        const updater = (prev: Order[]) => 
+          prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o));
+
+        if (windowType === 'MORNING_11AM') setMorningOrders(updater);
+        else setAfternoonOrders(updater);
+      } else {
+        setErrorMsg(result.error || 'Failed to update order status');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Failed to connect to database to update status');
+    } finally {
+      setUpdatingIds((prev) => ({ ...prev, [orderId]: false }));
+    }
+  };
+
+  // Cancel order handler
+  const handleCancelOrder = async (orderId: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => {
+    if (!window.confirm('Are you sure you want to cancel this order?')) return;
+    
+    setErrorMsg('');
+    setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
+    try {
+      const result = await cancelOrder(orderId);
+      if (result.success) {
+        const updater = (prev: Order[]) => 
+          prev.map((o) => (o.id === orderId ? { ...o, status: OrderStatus.CANCELLED } : o));
+
+        if (windowType === 'MORNING_11AM') setMorningOrders(updater);
+        else setAfternoonOrders(updater);
+      } else {
+        setErrorMsg(result.error || 'Failed to cancel order');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Failed to cancel order');
+    } finally {
+      setUpdatingIds((prev) => ({ ...prev, [orderId]: false }));
+    }
+  };
+
+  const handleRefresh = () => {
+    window.location.reload();
+  };
+
+  return (
+    <div className="min-h-screen bg-bg-warm flex flex-col">
+      <AdminHeader />
+
+      <main className="max-w-6xl mx-auto px-4 py-8 flex-grow w-full flex flex-col gap-6">
+        
+        {/* Dashboard Title & Actions */}
+        <div className="flex justify-between items-center border-b border-brand-deep/10 pb-4">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-brand-deep">Today's Orders Dashboard</h1>
+            <p className="text-xs opacity-60 mt-1">Real-time catering logs and office batch packaging dispatch</p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-1.5 px-4 py-2 border border-brand-deep/10 hover:border-brand-accent bg-white rounded-lg text-xs font-bold text-brand-deep hover:text-brand-accent shadow-xs transition"
+          >
+            <RefreshCw size={14} />
+            Sync Logs
+          </button>
+        </div>
+
+        {dbError && (
+          <div className="bg-alert/15 border border-alert text-ink p-3 rounded-lg flex items-start gap-2">
+            <AlertCircle className="text-alert shrink-0 mt-0.5" size={18} />
+            <span className="text-xs font-semibold">
+              Offline Mode: Connect to database to load actual customer orders.
+            </span>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="bg-alert/15 border border-alert text-ink p-3 rounded-lg flex items-start gap-2">
+            <AlertCircle className="text-alert shrink-0 mt-0.5" size={18} />
+            <span className="text-xs font-semibold">{errorMsg}</span>
+          </div>
+        )}
+
+        {/* 11:00 AM MORNING WINDOW */}
+        <section className="flex flex-col gap-4">
+          <div className="bg-brand-deep text-bg-warm p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h2 className="font-extrabold text-md uppercase tracking-wider">🌅 Morning Delivery Window</h2>
+              <p className="text-xs opacity-75 mt-0.5">Targets 11:00 AM delivery batch</p>
+            </div>
+            <div className="bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10">
+              {morningTotals.count} Orders · ₹{morningTotals.total} Total
+            </div>
+          </div>
+
+          {morningOrders.length === 0 ? (
+            <div className="bg-white p-8 text-center text-sm opacity-50 border border-brand-deep/5 rounded-xl">
+              No orders registered for the morning window today.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {Object.entries(morningGrouped).map(([company, ordersList]) => (
+                <div key={company} className="bg-white rounded-xl border border-brand-deep/5 shadow-xs overflow-hidden">
+                  {/* Batch Header */}
+                  <div className="bg-bg-warm/30 px-5 py-3 border-b border-brand-deep/5 flex items-center gap-2">
+                    <MapPin className="text-brand-accent" size={16} />
+                    <span className="font-bold text-sm text-brand-deep">{company}</span>
+                    <span className="text-xs bg-brand-deep/5 text-brand-deep px-2 py-0.5 rounded-full font-semibold">
+                      {ordersList.length} delivery batch{ordersList.length > 1 ? 'es' : ''}
+                    </span>
+                  </div>
+
+                  {/* Batch Orders List */}
+                  <div className="divide-y divide-brand-deep/5">
+                    {ordersList.map((order) => (
+                      <OrderRow 
+                        key={order.id} 
+                        order={order} 
+                        windowType="MORNING_11AM"
+                        isUpdating={!!updatingIds[order.id]}
+                        onAdvance={handleAdvanceStatus}
+                        onCancel={handleCancelOrder}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 4:00 PM AFTERNOON WINDOW */}
+        <section className="flex flex-col gap-4 mt-4">
+          <div className="bg-brand-deep text-bg-warm p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h2 className="font-extrabold text-md uppercase tracking-wider">☕ Afternoon Delivery Window</h2>
+              <p className="text-xs opacity-75 mt-0.5">Targets 4:00 PM delivery batch</p>
+            </div>
+            <div className="bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10">
+              {afternoonTotals.count} Orders · ₹{afternoonTotals.total} Total
+            </div>
+          </div>
+
+          {afternoonOrders.length === 0 ? (
+            <div className="bg-white p-8 text-center text-sm opacity-50 border border-brand-deep/5 rounded-xl">
+              No orders registered for the afternoon window today.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {Object.entries(afternoonGrouped).map(([company, ordersList]) => (
+                <div key={company} className="bg-white rounded-xl border border-brand-deep/5 shadow-xs overflow-hidden">
+                  {/* Batch Header */}
+                  <div className="bg-bg-warm/30 px-5 py-3 border-b border-brand-deep/5 flex items-center gap-2">
+                    <MapPin className="text-brand-accent" size={16} />
+                    <span className="font-bold text-sm text-brand-deep">{company}</span>
+                    <span className="text-xs bg-brand-deep/5 text-brand-deep px-2 py-0.5 rounded-full font-semibold">
+                      {ordersList.length} delivery batch{ordersList.length > 1 ? 'es' : ''}
+                    </span>
+                  </div>
+
+                  {/* Batch Orders List */}
+                  <div className="divide-y divide-brand-deep/5">
+                    {ordersList.map((order) => (
+                      <OrderRow 
+                        key={order.id} 
+                        order={order} 
+                        windowType="AFTERNOON_4PM"
+                        isUpdating={!!updatingIds[order.id]}
+                        onAdvance={handleAdvanceStatus}
+                        onCancel={handleCancelOrder}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+interface OrderRowProps {
+  order: Order;
+  windowType: 'MORNING_11AM' | 'AFTERNOON_4PM';
+  isUpdating: boolean;
+  onAdvance: (id: string, status: OrderStatus, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => void;
+  onCancel: (id: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => void;
+}
+
+function OrderRow({ order, windowType, isUpdating, onAdvance, onCancel }: OrderRowProps) {
+  const nextActionLabel = NEXT_ACTION_LABELS[order.status];
+
+  // Helper for status badge style
+  const getStatusColor = (status: OrderStatus) => {
+    switch (status) {
+      case OrderStatus.PLACED: return 'bg-brand-deep/5 text-brand-deep border-brand-deep/15';
+      case OrderStatus.PREPARING: return 'bg-brand-accent/10 text-brand-deep border-brand-accent/20 font-bold';
+      case OrderStatus.OUT_FOR_DELIVERY: return 'bg-fresh/10 text-fresh border-fresh/25 font-bold';
+      case OrderStatus.DELIVERED: return 'bg-fresh text-bg-warm border-fresh font-bold';
+      case OrderStatus.CANCELLED: return 'bg-alert/15 text-alert border-alert/20 font-semibold';
+      default: return 'bg-brand-deep/5 text-brand-deep';
+    }
+  };
+
+  return (
+    <div className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-5 text-sm hover:bg-bg-warm/5">
+      {/* Order info */}
+      <div className="flex-grow flex flex-col gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-bold text-brand-deep text-md">{order.customer.name}</span>
+          <a
+            href={`tel:${order.customer.phone}`}
+            className="text-xs text-brand-accent hover:underline flex items-center gap-1 font-semibold"
+          >
+            <Phone size={10} />
+            +91 {order.customer.phone}
+          </a>
+          <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full border ${getStatusColor(order.status)}`}>
+            {STATUS_LABELS[order.status]}
+          </span>
+        </div>
+
+        {/* Ordered items list */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-brand-deep/80">
+          <ShoppingBag size={12} className="opacity-55" />
+          {order.items.map((item) => (
+            <span key={item.id} className="font-medium">
+              {item.menuItem.name} <span className="opacity-60">x {item.quantity}</span>
+            </span>
+          ))}
+        </div>
+
+        {/* Custom request message */}
+        {order.customRequest && (
+          <p className="text-xs italic opacity-75 bg-bg-warm/25 p-2 rounded-md border border-brand-deep/5 max-w-lg mt-0.5">
+            💡 "{order.customRequest}"
+          </p>
+        )}
+      </div>
+
+      {/* Pricing, Payment & Advance button */}
+      <div className="shrink-0 flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 border-brand-deep/5 pt-3 md:pt-0">
+        <div className="text-left md:text-right">
+          <p className="text-sm font-extrabold text-brand-deep">₹{order.totalAmount}</p>
+          <p className="text-[10px] opacity-60 font-semibold mt-0.5">
+            {order.paymentMethod === 'UPI_ON_DELIVERY' ? 'UPI on Delivery' : 'Cash'}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Cancel button if order is active */}
+          {order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.CANCELLED && (
+            <button
+              onClick={() => onCancel(order.id, windowType)}
+              disabled={isUpdating}
+              className="p-2 border border-brand-deep/10 hover:border-alert hover:bg-alert/5 text-brand-deep/40 hover:text-alert rounded-lg transition disabled:opacity-40"
+              title="Cancel Order"
+            >
+              <Ban size={14} />
+            </button>
+          )}
+
+          {/* Action button */}
+          {nextActionLabel && (
+            <button
+              onClick={() => onAdvance(order.id, order.status, windowType)}
+              disabled={isUpdating}
+              className={`px-4 py-2 text-xs font-bold rounded-lg shadow-xs transition duration-150 disabled:opacity-50 flex items-center gap-1.5 ${
+                order.status === OrderStatus.PLACED 
+                  ? 'bg-brand-deep hover:bg-brand-deep/90 text-bg-warm'
+                  : order.status === OrderStatus.PREPARING
+                  ? 'bg-brand-accent hover:bg-brand-accent/90 text-bg-warm'
+                  : 'bg-fresh hover:bg-fresh/90 text-bg-warm'
+              }`}
+            >
+              {order.status === OrderStatus.PLACED && <Flame size={12} />}
+              {order.status === OrderStatus.PREPARING && <Truck size={12} />}
+              {order.status === OrderStatus.OUT_FOR_DELIVERY && <Check size={12} />}
+              {nextActionLabel}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
