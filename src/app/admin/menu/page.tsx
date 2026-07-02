@@ -12,7 +12,7 @@ export default async function AdminMenuPage() {
     redirect('/admin');
   }
 
-  let menuItems = [];
+  let menuItems: any[] = [];
   try {
     const dbItems = await prisma.menuItem.findMany({
       orderBy: {

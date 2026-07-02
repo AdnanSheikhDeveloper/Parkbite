@@ -1,6 +1,5 @@
-import { PrismaClient, Category } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { Category } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 
 const startingItems = [
   { name: 'Samosa', category: Category.SNACKS, costPrice: 10, sellPrice: 15 },

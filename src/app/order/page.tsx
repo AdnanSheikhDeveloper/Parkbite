@@ -5,7 +5,7 @@ import { getAvailableWindows } from '@/lib/date-utils';
 export const revalidate = 0; // Always fetch fresh data
 
 export default async function OrderPage() {
-  let menuItems = [];
+  let menuItems: any[] = [];
   let dbError = false;
 
   try {
