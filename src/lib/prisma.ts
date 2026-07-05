@@ -6,19 +6,26 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const connectionString = process.env.DATABASE_URL;
+// Check if we are running the seed script or a migration command
+const isSeedingOrCli = 
+  process.env.npm_lifecycle_event === 'seed' || 
+  process.argv.some(arg => arg.includes('seed') || arg.includes('prisma'));
 
-// Ensure we have a database connection string
+// Prioritize DATABASE_URL (pooled connection) for live application runtime to prevent connection exhaustion.
+// Prioritize DIRECT_URL (direct connection) for seeding to prevent transaction pooler ECONNRESET limits.
+const connectionString = isSeedingOrCli
+  ? (process.env.DIRECT_URL || process.env.DATABASE_URL)
+  : (process.env.DATABASE_URL || process.env.DIRECT_URL);
+
 if (!connectionString) {
-  console.warn('DATABASE_URL environment variable is missing.');
+  console.warn('DATABASE_URL or DIRECT_URL environment variable is missing.');
 }
 
 const pool = new Pool({ 
   connectionString,
-  // Add connection limit to respect serverless/Supabase constraints
-  max: 10,
+  max: isSeedingOrCli ? 2 : 10, // Keep connection count low for serverless functions, and extra low for CLI script
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
 });
 
 const adapter = new PrismaPg(pool);

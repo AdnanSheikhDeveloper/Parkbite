@@ -16,12 +16,15 @@
   --color-brand-accent: var(--brand-accent);
   --color-fresh: var(--fresh);
   --color-alert: var(--alert);
+
+  --font-sans: var(--font-sans), sans-serif;
+  --font-display: var(--font-display), serif;
 }
 
 body {
   background-color: var(--bg-warm);
   color: var(--ink);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans), sans-serif;
 }
 
 /* Custom scrollbars to fit the warm style */

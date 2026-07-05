@@ -57,3 +57,30 @@ export async function cancelOrder(orderId: string): Promise<{ success: boolean; 
     return { success: false, error: 'Database error cancelling order' };
   }
 }
+
+/**
+ * Allows the admin/operator to mark an order as paid.
+ */
+export async function adminConfirmPayment(
+  orderId: string,
+  upiReferenceNo?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: 'PAID',
+        paidBy: 'admin',
+        paidAt: new Date(),
+        upiReferenceNo: upiReferenceNo || null,
+      },
+    });
+
+    revalidatePath('/admin/orders');
+    revalidatePath(`/order/track/${orderId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Admin failed to confirm payment:', error);
+    return { success: false, error: 'Database error updating payment status' };
+  }
+}

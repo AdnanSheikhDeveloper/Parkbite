@@ -25,7 +25,7 @@ export default function CheckoutPage() {
   const [name, setName] = useState('');
   const [companyAndFloor, setCompanyAndFloor] = useState('');
   const [phone, setPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI_ON_DELIVERY'>('UPI_ON_DELIVERY');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI_QR'>('UPI_QR');
 
   // UI States
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -102,7 +102,7 @@ export default function CheckoutPage() {
         // Clear local storage cart
         localStorage.removeItem('parkbite_cart');
         localStorage.removeItem('parkbite_custom_request');
-        router.push(`/order/track/${result.orderId}`);
+        router.push(`/order/track/${result.orderId}?new=true`);
       } else {
         setServerError(result.error || 'Something went wrong while placing your order.');
         setIsSubmitting(false);
@@ -223,20 +223,20 @@ export default function CheckoutPage() {
             </label>
             <div className="grid grid-cols-2 gap-4">
               <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
-                paymentMethod === 'UPI_ON_DELIVERY' 
+                paymentMethod === 'UPI_QR' 
                   ? 'border-brand-accent bg-brand-accent/5 font-semibold text-brand-deep' 
                   : 'border-brand-deep/10 hover:bg-bg-warm/10'
               }`}>
                 <input
                   type="radio"
                   name="payment"
-                  checked={paymentMethod === 'UPI_ON_DELIVERY'}
-                  onChange={() => setPaymentMethod('UPI_ON_DELIVERY')}
+                  checked={paymentMethod === 'UPI_QR'}
+                  onChange={() => setPaymentMethod('UPI_QR')}
                   className="accent-brand-accent"
                 />
                 <div className="text-xs">
-                  <span className="block">UPI on Delivery</span>
-                  <span className="opacity-60 text-[10px]">Pay via PhonePe/GPay on delivery</span>
+                  <span className="block">Pay by UPI QR</span>
+                  <span className="opacity-60 text-[10px]">Scan QR code after placing order</span>
                 </div>
               </label>
 
@@ -253,8 +253,8 @@ export default function CheckoutPage() {
                   className="accent-brand-accent"
                 />
                 <div className="text-xs">
-                  <span className="block">Cash on Delivery</span>
-                  <span className="opacity-60 text-[10px]">Pay physical cash to rider</span>
+                  <span className="block">Pay cash at delivery</span>
+                  <span className="opacity-60 text-[10px]">Pay physical cash to delivery rider</span>
                 </div>
               </label>
             </div>

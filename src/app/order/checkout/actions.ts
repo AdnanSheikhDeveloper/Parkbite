@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { isWindowOpen } from '@/lib/date-utils';
-import { DeliveryWindow, PaymentMethod, OrderStatus } from '@prisma/client';
+import { DeliveryWindow, PaymentMethod, OrderStatus, PaymentStatus } from '@prisma/client';
 
 export interface PlaceOrderResult {
   success: boolean;
@@ -16,7 +16,7 @@ export async function placeOrder(formData: {
   companyAndFloor: string;
   deliveryWindow: 'MORNING_11AM' | 'AFTERNOON_4PM';
   targetDate: string;
-  paymentMethod: 'CASH' | 'UPI_ON_DELIVERY';
+  paymentMethod: 'CASH' | 'UPI_QR';
   customRequest?: string;
   items: { menuItemId: string; quantity: number }[];
 }): Promise<PlaceOrderResult> {
@@ -37,14 +37,20 @@ export async function placeOrder(formData: {
     return { success: false, error: 'Your cart is empty' };
   }
 
-  // 2. Cutoff validation
+  // 2. Strict Cutoff validation with exact PRD copy
   const isOpen = isWindowOpen(formData.targetDate, formData.deliveryWindow);
   if (!isOpen) {
-    const windowName = formData.deliveryWindow === 'MORNING_11AM' ? '11:00 AM' : '4:00 PM';
-    return {
-      success: false,
-      error: `The ${windowName} window for delivery on ${formData.targetDate} is closed.`,
-    };
+    if (formData.deliveryWindow === 'MORNING_11AM') {
+      return {
+        success: false,
+        error: 'Orders for 11:00 AM closed at 10:00 AM — the 4:00 PM window is open until 3:00 PM.',
+      };
+    } else {
+      return {
+        success: false,
+        error: 'Orders for 4:00 PM closed at 3:00 PM — the 11:00 AM window is open until 10:00 AM tomorrow.',
+      };
+    }
   }
 
   try {
@@ -107,6 +113,7 @@ export async function placeOrder(formData: {
           status: OrderStatus.PLACED,
           totalAmount: totalAmount,
           paymentMethod: formData.paymentMethod as PaymentMethod,
+          paymentStatus: PaymentStatus.PENDING,
           customRequest: formData.customRequest || null,
           items: {
             create: orderItemsToCreate,

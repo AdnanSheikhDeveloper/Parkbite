@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, Check, X, AlertCircle, Sparkles, Loader2 } from 'lucide-react';
 import AdminHeader from '@/components/AdminHeader';
+import { motion } from 'framer-motion';
 import { 
   addMenuItem, 
   updateMenuItemPrice, 
@@ -238,7 +239,7 @@ export default function MenuManagerClient({ initialMenuItems }: MenuManagerClien
                               ) : (
                                 <div 
                                   onClick={() => startEditPrice(item)}
-                                  className="cursor-pointer hover:underline text-brand-accent font-bold"
+                                  className="cursor-pointer hover:underline text-brand-accent font-bold tabular-nums"
                                   title="Click to edit price inline"
                                 >
                                   ₹{item.sellPrice}
@@ -246,12 +247,23 @@ export default function MenuManagerClient({ initialMenuItems }: MenuManagerClien
                               )}
                             </td>
                             <td className="py-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={item.isAvailable}
-                                onChange={() => handleToggleAvailable(item.id, item.isAvailable)}
-                                className="w-4 h-4 accent-fresh cursor-pointer"
-                              />
+                              <motion.button
+                                type="button"
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleToggleAvailable(item.id, item.isAvailable)}
+                                className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 mx-auto ${
+                                  item.isAvailable ? 'bg-fresh' : 'bg-alert/35'
+                                }`}
+                                aria-label={`Toggle availability for ${item.name}`}
+                              >
+                                <motion.div
+                                  layout
+                                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                                  className={`bg-white w-4 h-4 rounded-full shadow-xs ${
+                                    item.isAvailable ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </motion.button>
                             </td>
                             <td className="py-3 text-right">
                               {confirmDeleteId === item.id ? (

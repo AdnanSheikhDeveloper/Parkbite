@@ -37,16 +37,21 @@ model Customer {
 }
 
 model Order {
-  id             String        @id @default(cuid())
-  customerId     String
-  customer       Customer      @relation(fields: [customerId], references: [id])
-  deliveryWindow DeliveryWindow
-  status         OrderStatus   @default(PLACED)
-  totalAmount    Decimal
-  paymentMethod  PaymentMethod
-  customRequest  String?
-  items          OrderItem[]
-  createdAt      DateTime      @default(now())
+  id              String        @id @default(cuid())
+  customerId      String
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  deliveryWindow  DeliveryWindow
+  status          OrderStatus   @default(PLACED)
+  totalAmount     Decimal
+  paymentMethod   PaymentMethod @default(UPI_QR)
+  paymentStatus   PaymentStatus @default(PENDING)
+  upiReferenceNo  String?
+  paidAt          DateTime?
+  paidBy          String?       // "rider", "admin", or "customer-reported"
+  customRequest   String?
+  items           OrderItem[]
+  createdAt       DateTime      @default(now())
+  statusUpdatedAt DateTime      @default(now()) @updatedAt
 }
 
 enum DeliveryWindow {
@@ -64,7 +69,12 @@ enum OrderStatus {
 
 enum PaymentMethod {
   CASH
-  UPI_ON_DELIVERY
+  UPI_QR
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
 }
 
 model OrderItem {

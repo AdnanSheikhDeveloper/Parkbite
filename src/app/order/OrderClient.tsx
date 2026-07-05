@@ -1,9 +1,42 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShoppingBag, Plus, Minus, Info, AlertTriangle } from 'lucide-react';
 import { DeliveryWindowOption } from '@/lib/date-utils';
+import { motion, AnimatePresence, useReducedMotion, useMotionValue, useTransform, animate } from 'framer-motion';
+import SteamCanvas from '@/components/SteamCanvas';
+
+interface AnimatedTotalProps {
+  value: number;
+}
+
+function AnimatedTotal({ value }: AnimatedTotalProps) {
+  const count = useMotionValue(value);
+  const rounded = useTransform(count, (latest) => Math.round(latest));
+  const ref = useRef<HTMLSpanElement>(null);
+  const shouldReduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (shouldReduceMotion) {
+      count.set(value);
+      if (ref.current) ref.current.textContent = `₹${value}`;
+      return;
+    }
+    const controls = animate(count, value, { duration: 0.25, ease: 'easeOut' });
+    return () => controls.stop();
+  }, [value, count, shouldReduceMotion]);
+
+  useEffect(() => {
+    return rounded.on('change', (latest) => {
+      if (ref.current) {
+        ref.current.textContent = `₹${latest}`;
+      }
+    });
+  }, [rounded]);
+
+  return <span ref={ref} className="tabular-nums">₹{value}</span>;
+}
 
 interface MenuItem {
   id: string;
@@ -41,9 +74,11 @@ const CATEGORIES_ORDER = [
 
 export default function OrderClient({ initialMenuItems, initialWindows, dbError }: OrderClientProps) {
   const router = useRouter();
+  const shouldReduceMotion = useReducedMotion();
   const [selectedWindow, setSelectedWindow] = useState<'MORNING_11AM' | 'AFTERNOON_4PM'>('MORNING_11AM');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customRequest, setCustomRequest] = useState('');
+  const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
   // Load cart from localStorage on mount
@@ -51,11 +86,13 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
     try {
       const savedCart = localStorage.getItem('parkbite_cart');
       const savedWindow = localStorage.getItem('parkbite_window');
-      const savedRequest = localStorage.getItem('parkbite_custom_request');
+      const savedRequestRaw = localStorage.getItem('parkbite_custom_request_raw');
+      const savedExtras = localStorage.getItem('parkbite_selected_extras');
 
       if (savedCart) setCart(JSON.parse(savedCart));
       if (savedWindow) setSelectedWindow(savedWindow as any);
-      if (savedRequest) setCustomRequest(savedRequest);
+      if (savedRequestRaw) setCustomRequest(savedRequestRaw);
+      if (savedExtras) setSelectedExtras(JSON.parse(savedExtras));
     } catch (e) {
       console.error('Failed to load cart from localStorage', e);
     }
@@ -70,8 +107,15 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
     localStorage.setItem('parkbite_window', windowId);
   };
 
-  const saveRequestToStorage = (req: string) => {
-    localStorage.setItem('parkbite_custom_request', req);
+  const handleToggleExtra = (extra: string) => {
+    let next: string[];
+    if (selectedExtras.includes(extra)) {
+      next = selectedExtras.filter((e) => e !== extra);
+    } else {
+      next = [...selectedExtras, extra];
+    }
+    setSelectedExtras(next);
+    localStorage.setItem('parkbite_selected_extras', JSON.stringify(next));
   };
 
   const handleAdd = (item: MenuItem) => {
@@ -131,9 +175,20 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
 
   const handlePlaceOrder = () => {
     if (cart.length === 0) return;
-    // Save target window options for checkout
+
+    let finalRequest = '';
+    if (selectedExtras.length > 0) {
+      finalRequest += `Extra Items: ${selectedExtras.join(', ')}`;
+    }
+    if (customRequest.trim()) {
+      if (finalRequest) finalRequest += '. ';
+      finalRequest += `Notes: ${customRequest.trim()}`;
+    }
+
+    // Save target window options and merged customRequest for checkout
     localStorage.setItem('parkbite_target_date', activeWindowInfo.targetDate);
     localStorage.setItem('parkbite_window_label', activeWindowInfo.label);
+    localStorage.setItem('parkbite_custom_request', finalRequest);
     router.push('/order/checkout');
   };
 
@@ -149,8 +204,12 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
       <header className="bg-brand-deep text-bg-warm py-6 px-4 shadow-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2">
-              🍜 ParkBite Express
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2 relative">
+              <span className="relative">
+                🍜
+                <SteamCanvas />
+              </span>
+              <span className="font-display">ParkBite Express</span>
             </h1>
             <p className="text-sm opacity-80 mt-1">Hyperlocal fresh food delivered straight to your IT park desk</p>
           </div>
@@ -246,34 +305,37 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                           >
                             <div className="flex-grow">
                               <h3 className="font-semibold text-brand-deep text-md">{item.name}</h3>
-                              <p className="text-sm font-bold text-brand-accent mt-1">₹{item.sellPrice}</p>
+                              <p className="text-sm font-bold text-brand-accent mt-1 tabular-nums">₹{item.sellPrice}</p>
                             </div>
                             <div className="shrink-0">
                               {qty > 0 ? (
                                 <div className="flex items-center gap-2 bg-brand-deep/5 px-2 py-1 rounded-lg border border-brand-deep/10">
-                                  <button
+                                  <motion.button
+                                    whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
                                     onClick={() => handleRemove(item.id)}
-                                    className="p-1 text-brand-deep hover:text-brand-accent transition"
+                                    className="p-1 text-brand-deep hover:text-brand-accent transition cursor-pointer animate-none"
                                     aria-label="Decrease quantity"
                                   >
                                     <Minus size={16} />
-                                  </button>
-                                  <span className="font-bold text-sm min-w-[20px] text-center">{qty}</span>
-                                  <button
+                                  </motion.button>
+                                  <span className="font-bold text-sm min-w-[20px] text-center tabular-nums">{qty}</span>
+                                  <motion.button
+                                    whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
                                     onClick={() => handleAdd(item)}
-                                    className="p-1 text-brand-deep hover:text-brand-accent transition"
+                                    className="p-1 text-brand-deep hover:text-brand-accent transition cursor-pointer animate-none"
                                     aria-label="Increase quantity"
                                   >
                                     <Plus size={16} />
-                                  </button>
+                                  </motion.button>
                                 </div>
                               ) : (
-                                <button
+                                <motion.button
+                                  whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
                                   onClick={() => handleAdd(item)}
-                                  className="px-4 py-1.5 bg-brand-deep hover:bg-brand-deep/90 text-bg-warm font-semibold text-xs rounded-lg shadow-sm transition"
+                                  className="px-4 py-1.5 bg-brand-deep hover:bg-brand-deep/90 text-bg-warm font-semibold text-xs rounded-lg shadow-sm transition cursor-pointer"
                                 >
                                   Add
-                                </button>
+                                </motion.button>
                               )}
                             </div>
                           </div>
@@ -291,22 +353,49 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
             })}
           </div>
 
-          {/* Custom request field */}
-          <div className="bg-white p-5 rounded-xl shadow-xs border border-brand-deep/5 mt-4">
-            <label htmlFor="custom-request" className="block font-semibold text-brand-deep mb-2">
-              Want something not on the menu?
-            </label>
-            <textarea
-              id="custom-request"
-              rows={3}
-              placeholder="e.g. Extra hot milk tea, single sandwich without onions..."
-              value={customRequest}
-              onChange={(e) => {
-                setCustomRequest(e.target.value);
-                saveRequestToStorage(e.target.value);
-              }}
-              className="w-full p-3 rounded-lg bg-bg-warm/30 border border-brand-deep/10 focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden text-sm resize-none"
-            />
+          {/* Bounded custom request field */}
+          <div className="bg-white p-5 rounded-xl shadow-xs border border-brand-deep/5 mt-4 flex flex-col gap-4">
+            <div>
+              <h3 className="block text-sm font-semibold text-brand-deep mb-2">
+                Want something not on the menu? Select pre-approved extras:
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {['Cold coffee', 'Poha', 'Extra chutney'].map((extra) => {
+                  const isSelected = selectedExtras.includes(extra);
+                  return (
+                    <button
+                      key={extra}
+                      type="button"
+                      onClick={() => handleToggleExtra(extra)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-brand-accent border-brand-accent text-bg-warm shadow-xs font-bold'
+                          : 'bg-bg-warm/30 border-brand-deep/10 text-brand-deep hover:bg-bg-warm/50'
+                      }`}
+                    >
+                      {extra}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="custom-request" className="block text-sm font-semibold text-brand-deep mb-2">
+                Something else? We'll try, but it's not guaranteed
+              </label>
+              <textarea
+                id="custom-request"
+                rows={3}
+                placeholder="e.g. Extra hot milk tea, single sandwich without onions..."
+                value={customRequest}
+                onChange={(e) => {
+                  setCustomRequest(e.target.value);
+                  localStorage.setItem('parkbite_custom_request_raw', e.target.value);
+                }}
+                className="w-full p-3 rounded-lg bg-bg-warm/30 border border-brand-deep/10 focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden text-sm resize-none"
+              />
+            </div>
           </div>
         </div>
 
@@ -330,35 +419,47 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
             {/* Cart Items List */}
             {cart.length > 0 ? (
               <div className="flex flex-col gap-4 max-h-[300px] overflow-y-auto pr-1">
-                {cart.map((item) => (
-                  <div key={item.menuItemId} className="flex justify-between items-center gap-4 text-sm">
-                    <div className="flex-grow">
-                      <p className="font-medium text-brand-deep">{item.name}</p>
-                      <p className="text-xs opacity-60">₹{item.sellPrice} each</p>
-                    </div>
-                    <div className="flex items-center gap-2 border border-brand-deep/5 px-2 py-0.5 rounded-md">
-                      <button
-                        onClick={() => handleRemove(item.menuItemId)}
-                        className="text-brand-deep/60 hover:text-brand-accent"
-                      >
-                        <Minus size={14} />
-                      </button>
-                      <span className="font-bold min-w-[15px] text-center text-xs">{item.quantity}</span>
-                      <button
-                        onClick={() => {
-                          const originalItem = initialMenuItems.find((i) => i.id === item.menuItemId);
-                          if (originalItem) handleAdd(originalItem);
-                        }}
-                        className="text-brand-deep/60 hover:text-brand-accent"
-                      >
-                        <Plus size={14} />
-                      </button>
-                    </div>
-                    <p className="font-semibold text-right text-brand-deep min-w-[50px]">
-                      ₹{item.sellPrice * item.quantity}
-                    </p>
-                  </div>
-                ))}
+                <AnimatePresence initial={false}>
+                  {cart.map((item) => (
+                    <motion.div
+                      key={item.menuItemId}
+                      layout={!shouldReduceMotion}
+                      initial={shouldReduceMotion ? {} : { opacity: 0, y: 15 }}
+                      animate={shouldReduceMotion ? {} : { opacity: 1, y: 0 }}
+                      exit={shouldReduceMotion ? {} : { opacity: 0, scale: 0.9 }}
+                      transition={{ duration: 0.15 }}
+                      className="flex justify-between items-center gap-4 text-sm"
+                    >
+                      <div className="flex-grow">
+                        <p className="font-medium text-brand-deep">{item.name}</p>
+                        <p className="text-xs opacity-60 tabular-nums">₹{item.sellPrice} each</p>
+                      </div>
+                      <div className="flex items-center gap-2 border border-brand-deep/5 px-2 py-0.5 rounded-md">
+                        <motion.button
+                          whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                          onClick={() => handleRemove(item.menuItemId)}
+                          className="text-brand-deep/60 hover:text-brand-accent cursor-pointer animate-none"
+                        >
+                          <Minus size={14} />
+                        </motion.button>
+                        <span className="font-bold min-w-[15px] text-center text-xs tabular-nums">{item.quantity}</span>
+                        <motion.button
+                          whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                          onClick={() => {
+                            const originalItem = initialMenuItems.find((i) => i.id === item.menuItemId);
+                            if (originalItem) handleAdd(originalItem);
+                          }}
+                          className="text-brand-deep/60 hover:text-brand-accent cursor-pointer animate-none"
+                        >
+                          <Plus size={14} />
+                        </motion.button>
+                      </div>
+                      <p className="font-semibold text-right text-brand-deep min-w-[50px] tabular-nums">
+                        ₹{item.sellPrice * item.quantity}
+                      </p>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             ) : (
               <p className="text-sm opacity-60 text-center py-8">
@@ -371,7 +472,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               <div className="border-t border-brand-deep/10 pt-4 flex flex-col gap-4">
                 <div className="flex justify-between items-center font-bold text-brand-deep">
                   <span>Grand Total</span>
-                  <span>₹{cartTotal}</span>
+                  <AnimatedTotal value={cartTotal} />
                 </div>
 
                 <button
@@ -394,17 +495,19 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               <p className="text-xs opacity-75 font-semibold text-brand-deep">
                 {cartItemCount} item{cartItemCount > 1 ? 's' : ''} for {activeWindowInfo.label}
               </p>
-              <p className="text-lg font-bold text-brand-deep">₹{cartTotal}</p>
+              <div className="text-lg font-bold text-brand-deep">
+                <AnimatedTotal value={cartTotal} />
+              </div>
             </div>
             <button
               onClick={() => setIsMobileCartOpen(!isMobileCartOpen)}
-              className="px-3 py-1.5 border border-brand-deep/20 rounded-lg text-xs font-semibold text-brand-deep"
+              className="px-3 py-1.5 border border-brand-deep/20 rounded-lg text-xs font-semibold text-brand-deep cursor-pointer"
             >
               {isMobileCartOpen ? 'Hide Slip' : 'View Slip'}
             </button>
             <button
               onClick={handlePlaceOrder}
-              className="px-5 py-2.5 bg-brand-accent hover:bg-brand-accent/90 text-bg-warm font-bold rounded-lg text-sm shadow transition"
+              className="px-5 py-2.5 bg-brand-accent hover:bg-brand-accent/90 text-bg-warm font-bold rounded-lg text-sm shadow transition cursor-pointer"
             >
               Checkout
             </button>
@@ -413,30 +516,42 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
           {/* Drawer content when expanded */}
           {isMobileCartOpen && (
             <div className="border-t border-brand-deep/10 pt-3 flex flex-col gap-3 max-h-[220px] overflow-y-auto">
-              {cart.map((item) => (
-                <div key={item.menuItemId} className="flex justify-between items-center gap-3 text-xs">
-                  <span className="font-semibold text-brand-deep flex-grow">{item.name}</span>
-                  <div className="flex items-center gap-2 border border-brand-deep/5 px-2 py-0.5 rounded-md shrink-0">
-                    <button
-                      onClick={() => handleRemove(item.menuItemId)}
-                      className="text-brand-deep/60"
-                    >
-                      <Minus size={12} />
-                    </button>
-                    <span className="font-bold min-w-[12px] text-center">{item.quantity}</span>
-                    <button
-                      onClick={() => {
-                        const originalItem = initialMenuItems.find((i) => i.id === item.menuItemId);
-                        if (originalItem) handleAdd(originalItem);
-                      }}
-                      className="text-brand-deep/60"
-                    >
-                      <Plus size={12} />
-                    </button>
-                  </div>
-                  <span className="font-semibold text-right min-w-[40px]">₹{item.sellPrice * item.quantity}</span>
-                </div>
-              ))}
+              <AnimatePresence initial={false}>
+                {cart.map((item) => (
+                  <motion.div
+                    key={item.menuItemId}
+                    layout={!shouldReduceMotion}
+                    initial={shouldReduceMotion ? {} : { opacity: 0, y: 10 }}
+                    animate={shouldReduceMotion ? {} : { opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? {} : { opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.12 }}
+                    className="flex justify-between items-center gap-3 text-xs animate-none"
+                  >
+                    <span className="font-semibold text-brand-deep flex-grow">{item.name}</span>
+                    <div className="flex items-center gap-2 border border-brand-deep/5 px-2 py-0.5 rounded-md shrink-0">
+                      <motion.button
+                        whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                        onClick={() => handleRemove(item.menuItemId)}
+                        className="text-brand-deep/60 cursor-pointer animate-none"
+                      >
+                        <Minus size={12} />
+                      </motion.button>
+                      <span className="font-bold min-w-[12px] text-center tabular-nums">{item.quantity}</span>
+                      <motion.button
+                        whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                        onClick={() => {
+                          const originalItem = initialMenuItems.find((i) => i.id === item.menuItemId);
+                          if (originalItem) handleAdd(originalItem);
+                        }}
+                        className="text-brand-deep/60 cursor-pointer animate-none"
+                      >
+                        <Plus size={12} />
+                      </motion.button>
+                    </div>
+                    <span className="font-semibold text-right min-w-[40px] tabular-nums">₹{item.sellPrice * item.quantity}</span>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
         </div>
