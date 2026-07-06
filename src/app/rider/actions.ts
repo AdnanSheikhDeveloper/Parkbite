@@ -118,3 +118,25 @@ export async function riderUpdateOrderPrice(
     return { success: false, error: 'Database error updating price' };
   }
 }
+
+/**
+ * Allows the rider to update the order status.
+ */
+export async function riderUpdateOrderStatus(
+  orderId: string,
+  newStatus: OrderStatus
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { status: newStatus },
+    });
+    revalidatePath('/rider');
+    revalidatePath('/admin/orders');
+    revalidatePath(`/order/track/${orderId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Rider failed to update order status:', error);
+    return { success: false, error: 'Database error updating status' };
+  }
+}
