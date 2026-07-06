@@ -32,6 +32,8 @@ export default function CheckoutPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState('');
 
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem('parkbite_cart');
@@ -40,18 +42,16 @@ export default function CheckoutPage() {
       const savedTargetDate = localStorage.getItem('parkbite_target_date');
       const savedRequest = localStorage.getItem('parkbite_custom_request');
 
-      if (savedCart) {
-        const parsed = JSON.parse(savedCart);
-        if (parsed.length === 0) {
-          router.replace('/order');
-          return;
-        }
-        setCart(parsed);
-      } else {
+      const parsedCart = savedCart ? JSON.parse(savedCart) : [];
+      const requestText = savedRequest || '';
+
+      // If both cart and custom request are empty, redirect back
+      if (parsedCart.length === 0 && !requestText.trim()) {
         router.replace('/order');
         return;
       }
 
+      setCart(parsedCart);
       if (savedWindow) setDeliveryWindow(savedWindow as any);
       if (savedWindowLabel) setWindowLabel(savedWindowLabel);
       if (savedTargetDate) setTargetDate(savedTargetDate);
@@ -59,6 +59,8 @@ export default function CheckoutPage() {
     } catch (e) {
       console.error('Failed to load checkout state', e);
       router.replace('/order');
+    } finally {
+      setIsLoading(false);
     }
   }, [router]);
 
@@ -97,11 +99,12 @@ export default function CheckoutPage() {
         customRequest: customRequest || undefined,
         items: cart.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
       });
-
       if (result.success && result.orderId) {
         // Clear local storage cart
         localStorage.removeItem('parkbite_cart');
         localStorage.removeItem('parkbite_custom_request');
+        localStorage.removeItem('parkbite_custom_request_raw');
+        localStorage.removeItem('parkbite_selected_extras');
         router.push(`/order/track/${result.orderId}?new=true`);
       } else {
         setServerError(result.error || 'Something went wrong while placing your order.');
@@ -116,7 +119,7 @@ export default function CheckoutPage() {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.sellPrice * item.quantity, 0);
 
-  if (cart.length === 0) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg-warm">
         <Loader2 className="animate-spin text-brand-accent" size={32} />
@@ -310,9 +313,18 @@ export default function CheckoutPage() {
             )}
 
             {/* Total */}
-            <div className="border-t border-brand-deep/10 pt-3 flex justify-between items-center font-bold text-sm text-brand-deep">
-              <span>Total to Pay</span>
-              <span>₹{cartTotal}</span>
+            <div className="border-t border-brand-deep/10 pt-3 flex flex-col gap-2 text-brand-deep">
+              <div className="flex justify-between items-center font-bold text-sm">
+                <span>Total to Pay</span>
+                <span className="tabular-nums">
+                  {cart.length > 0 ? `₹${cartTotal}` : 'Price Pending'}
+                </span>
+              </div>
+              {cart.length === 0 && (
+                <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
+                  ⚠️ Price will be finalized by the operator based on the original shop rates, platform convenience fees, and delivery charges. The final total will update on your tracking page.
+                </p>
+              )}
             </div>
           </div>
         </div>

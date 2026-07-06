@@ -33,8 +33,11 @@ export async function placeOrder(formData: {
     return { success: false, error: 'Phone number must be exactly 10 digits' };
   }
   
-  if (!formData.items || formData.items.length === 0) {
-    return { success: false, error: 'Your cart is empty' };
+  const hasCartItems = formData.items && formData.items.length > 0;
+  const hasCustomRequest = formData.customRequest && formData.customRequest.trim() !== '';
+
+  if (!hasCartItems && !hasCustomRequest) {
+    return { success: false, error: 'Your cart and custom request are empty' };
   }
 
   // 2. Strict Cutoff validation with exact PRD copy
@@ -43,12 +46,12 @@ export async function placeOrder(formData: {
     if (formData.deliveryWindow === 'MORNING_11AM') {
       return {
         success: false,
-        error: 'Orders for 11:00 AM closed at 10:00 AM — the 4:00 PM window is open until 3:00 PM.',
+        error: 'Orders for 11:00 AM closed at 10:00 AM — the 4:00 PM window is open until 3:30 PM.',
       };
     } else {
       return {
         success: false,
-        error: 'Orders for 4:00 PM closed at 3:00 PM — the 11:00 AM window is open until 10:00 AM tomorrow.',
+        error: 'Orders for 4:00 PM closed at 3:30 PM — the 11:00 AM window is open until 10:00 AM tomorrow.',
       };
     }
   }
@@ -79,30 +82,34 @@ export async function placeOrder(formData: {
     }
 
     // 4. Fetch menu items to verify availability and prices
-    const itemIds = formData.items.map((i) => i.menuItemId);
-    const dbMenuItems = await prisma.menuItem.findMany({
-      where: {
-        id: { in: itemIds },
-        isAvailable: true,
-      },
-    });
-
-    if (dbMenuItems.length !== itemIds.length) {
-      return { success: false, error: 'Some items in your cart are no longer available.' };
-    }
-
-    // 5. Calculate total and prepare order items
     let totalAmount = 0;
-    const orderItemsToCreate = formData.items.map((item) => {
-      const dbItem = dbMenuItems.find((m) => m.id === item.menuItemId)!;
-      const sellPrice = Number(dbItem.sellPrice);
-      totalAmount += sellPrice * item.quantity;
-      return {
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        priceAtOrder: dbItem.sellPrice,
-      };
-    });
+    let orderItemsToCreate: any[] = [];
+
+    if (hasCartItems) {
+      const itemIds = formData.items.map((i) => i.menuItemId);
+      const dbMenuItems = await prisma.menuItem.findMany({
+        where: {
+          id: { in: itemIds },
+          isAvailable: true,
+        },
+      });
+
+      if (dbMenuItems.length !== itemIds.length) {
+        return { success: false, error: 'Some items in your cart are no longer available.' };
+      }
+
+      // 5. Calculate total and prepare order items
+      orderItemsToCreate = formData.items.map((item) => {
+        const dbItem = dbMenuItems.find((m) => m.id === item.menuItemId)!;
+        const sellPrice = Number(dbItem.sellPrice);
+        totalAmount += sellPrice * item.quantity;
+        return {
+          menuItemId: item.menuItemId,
+          quantity: item.quantity,
+          priceAtOrder: dbItem.sellPrice,
+        };
+      });
+    }
 
     // 6. Save order inside a transaction
     const order = await prisma.$transaction(async (tx) => {

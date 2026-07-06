@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, Plus, Minus, Info, AlertTriangle } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Info, AlertTriangle, Trash2 } from 'lucide-react';
 import { DeliveryWindowOption } from '@/lib/date-utils';
 import { motion, AnimatePresence, useReducedMotion, useMotionValue, useTransform, animate } from 'framer-motion';
 import SteamCanvas from '@/components/SteamCanvas';
@@ -77,6 +77,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
   const shouldReduceMotion = useReducedMotion();
   const [selectedWindow, setSelectedWindow] = useState<'MORNING_11AM' | 'AFTERNOON_4PM'>('MORNING_11AM');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [customRequestDraft, setCustomRequestDraft] = useState('');
   const [customRequest, setCustomRequest] = useState('');
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
@@ -91,7 +92,10 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
 
       if (savedCart) setCart(JSON.parse(savedCart));
       if (savedWindow) setSelectedWindow(savedWindow as any);
-      if (savedRequestRaw) setCustomRequest(savedRequestRaw);
+      if (savedRequestRaw) {
+        setCustomRequestDraft(savedRequestRaw);
+        setCustomRequest(savedRequestRaw);
+      }
       if (savedExtras) setSelectedExtras(JSON.parse(savedExtras));
     } catch (e) {
       console.error('Failed to load cart from localStorage', e);
@@ -116,6 +120,17 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
     }
     setSelectedExtras(next);
     localStorage.setItem('parkbite_selected_extras', JSON.stringify(next));
+  };
+
+  const handleApplyCustomRequest = () => {
+    setCustomRequest(customRequestDraft);
+    localStorage.setItem('parkbite_custom_request_raw', customRequestDraft);
+  };
+
+  const handleRemoveAll = (menuItemId: string) => {
+    const newCart = cart.filter((item) => item.menuItemId !== menuItemId);
+    setCart(newCart);
+    saveCartToStorage(newCart);
   };
 
   const handleAdd = (item: MenuItem) => {
@@ -174,7 +189,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
   const activeWindowInfo = initialWindows[selectedWindow];
 
   const handlePlaceOrder = () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 && !customRequest.trim()) return;
 
     let finalRequest = '';
     if (selectedExtras.length > 0) {
@@ -380,21 +395,44 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               </div>
             </div>
 
-            <div>
-              <label htmlFor="custom-request" className="block text-sm font-semibold text-brand-deep mb-2">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="custom-request" className="block text-xs font-bold uppercase tracking-wider text-brand-deep/60">
                 Something else? We'll try, but it's not guaranteed
               </label>
-              <textarea
-                id="custom-request"
-                rows={3}
-                placeholder="e.g. Extra hot milk tea, single sandwich without onions..."
-                value={customRequest}
-                onChange={(e) => {
-                  setCustomRequest(e.target.value);
-                  localStorage.setItem('parkbite_custom_request_raw', e.target.value);
-                }}
-                className="w-full p-3 rounded-lg bg-bg-warm/30 border border-brand-deep/10 focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden text-sm resize-none"
-              />
+              <div className="flex gap-2 items-start">
+                <textarea
+                  id="custom-request"
+                  rows={2}
+                  placeholder="e.g. Extra hot milk tea, single sandwich without onions..."
+                  value={customRequestDraft}
+                  onChange={(e) => setCustomRequestDraft(e.target.value)}
+                  className="flex-grow p-3 rounded-lg bg-bg-warm/30 border border-brand-deep/10 focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden text-xs resize-none"
+                />
+                <motion.button
+                  type="button"
+                  whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
+                  onClick={handleApplyCustomRequest}
+                  className="py-2.5 px-4 bg-brand-deep hover:bg-brand-deep/90 text-bg-warm font-bold text-xs rounded-lg shadow-sm transition flex items-center justify-center shrink-0 cursor-pointer self-stretch"
+                >
+                  {customRequest === customRequestDraft && customRequest ? 'Applied' : 'Add to Slip'}
+                </motion.button>
+              </div>
+              {customRequest && (
+                <div className="flex items-center justify-between text-[11px] font-semibold text-fresh bg-fresh/5 border border-fresh/10 p-2 rounded-lg mt-1">
+                  <span className="truncate">✓ Active request: "{customRequest}"</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomRequest('');
+                      setCustomRequestDraft('');
+                      localStorage.removeItem('parkbite_custom_request_raw');
+                    }}
+                    className="text-alert font-bold cursor-pointer hover:underline pl-2 shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -457,6 +495,14 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                       <p className="font-semibold text-right text-brand-deep min-w-[50px] tabular-nums">
                         ₹{item.sellPrice * item.quantity}
                       </p>
+                      <motion.button
+                        whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                        onClick={() => handleRemoveAll(item.menuItemId)}
+                        className="text-alert/60 hover:text-alert cursor-pointer p-1 shrink-0 ml-1 animate-none"
+                        title="Remove completely"
+                      >
+                        <Trash2 size={14} />
+                      </motion.button>
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -467,17 +513,48 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               </p>
             )}
 
+            {/* Custom Request Verification in Slip */}
+            {customRequest.trim() && (
+              <div className="bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 text-xs flex justify-between items-start gap-2">
+                <div>
+                  <span className="font-bold text-brand-deep block mb-0.5">Special Instructions:</span>
+                  <span className="italic opacity-85">"{customRequest}"</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomRequest('');
+                    setCustomRequestDraft('');
+                    localStorage.removeItem('parkbite_custom_request_raw');
+                  }}
+                  className="text-alert font-bold hover:underline text-[10px] shrink-0 cursor-pointer"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+
             {/* Total Section */}
-            {cart.length > 0 && (
+            {(cart.length > 0 || customRequest.trim() !== '') && (
               <div className="border-t border-brand-deep/10 pt-4 flex flex-col gap-4">
                 <div className="flex justify-between items-center font-bold text-brand-deep">
                   <span>Grand Total</span>
-                  <AnimatedTotal value={cartTotal} />
+                  {cart.length > 0 ? (
+                    <AnimatedTotal value={cartTotal} />
+                  ) : (
+                    <span className="text-xs font-semibold text-brand-accent">Price Pending</span>
+                  )}
                 </div>
+                
+                {cart.length === 0 && (
+                  <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
+                    ⚠️ Price will be finalized by the operator based on the original shop rates, platform convenience fees, and delivery charges.
+                  </p>
+                )}
 
                 <button
                   onClick={handlePlaceOrder}
-                  className="w-full py-3 bg-brand-accent hover:bg-brand-accent/90 text-bg-warm font-bold text-center rounded-lg shadow transition duration-200"
+                  className="w-full py-3 bg-brand-accent hover:bg-brand-accent/90 text-bg-warm font-bold text-center rounded-lg shadow transition duration-200 cursor-pointer"
                 >
                   Place order
                 </button>
@@ -488,15 +565,25 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
       </div>
 
       {/* Mobile Cart Bar & Bottom Drawer */}
-      {cart.length > 0 && (
+      {(cart.length > 0 || customRequest.trim() !== '') && (
         <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-brand-deep/10 p-4 shadow-lg z-50 flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-xs opacity-75 font-semibold text-brand-deep">
-                {cartItemCount} item{cartItemCount > 1 ? 's' : ''} for {activeWindowInfo.label}
-              </p>
+              {cart.length > 0 ? (
+                <p className="text-xs opacity-75 font-semibold text-brand-deep">
+                  {cartItemCount} item{cartItemCount > 1 ? 's' : ''} for {activeWindowInfo.label}
+                </p>
+              ) : (
+                <p className="text-xs opacity-75 font-semibold text-brand-deep">
+                  Custom request for {activeWindowInfo.label}
+                </p>
+              )}
               <div className="text-lg font-bold text-brand-deep">
-                <AnimatedTotal value={cartTotal} />
+                {cart.length > 0 ? (
+                  <AnimatedTotal value={cartTotal} />
+                ) : (
+                  <span className="text-sm font-bold text-brand-accent">Price Pending</span>
+                )}
               </div>
             </div>
             <button
@@ -549,9 +636,33 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                       </motion.button>
                     </div>
                     <span className="font-semibold text-right min-w-[40px] tabular-nums">₹{item.sellPrice * item.quantity}</span>
+                    <motion.button
+                      whileTap={shouldReduceMotion ? {} : { scale: 0.85 }}
+                      onClick={() => handleRemoveAll(item.menuItemId)}
+                      className="text-alert/60 hover:text-alert cursor-pointer p-1 shrink-0 ml-1 animate-none"
+                      title="Remove completely"
+                    >
+                      <Trash2 size={12} />
+                    </motion.button>
                   </motion.div>
                 ))}
               </AnimatePresence>
+              {customRequest.trim() && (
+                <div className="bg-brand-deep/5 p-2 rounded-lg border border-brand-deep/5 text-[11px] flex justify-between items-center mt-2 shrink-0">
+                  <span className="italic truncate pr-2">💡 Notes: "{customRequest}"</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomRequest('');
+                      setCustomRequestDraft('');
+                      localStorage.removeItem('parkbite_custom_request_raw');
+                    }}
+                    className="text-alert font-bold hover:underline shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,11 +1,30 @@
 'use client';
 
-import { useState } from 'react';
-import { RefreshCw, MapPin, Check, Truck, Flame, AlertCircle, ShoppingBag, Phone, Ban, Landmark, CheckSquare, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { 
+  RefreshCw, 
+  MapPin, 
+  Check, 
+  Truck, 
+  Flame, 
+  AlertCircle, 
+  ShoppingBag, 
+  Phone, 
+  Ban, 
+  Landmark, 
+  CheckSquare, 
+  Filter, 
+  Search, 
+  X, 
+  ChevronLeft, 
+  ChevronRight,
+  Pencil
+} from 'lucide-react';
 import AdminHeader from '@/components/AdminHeader';
-import { advanceOrderStatus, cancelOrder, adminConfirmPayment } from './actions';
+import { advanceOrderStatus, cancelOrder, adminConfirmPayment, adminUpdateOrderPrice } from './actions';
 import { OrderStatus, PaymentStatus, PaymentMethod } from '@prisma/client';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 interface Customer {
   id: string;
@@ -40,9 +59,23 @@ interface Order {
   items: OrderItem[];
 }
 
+interface Filters {
+  window: string;
+  status: string;
+  paymentStatus: string;
+  search: string;
+}
+
 interface OrdersDashboardClientProps {
-  initialMorningOrders: Order[];
-  initialAfternoonOrders: Order[];
+  orders: Order[];
+  currentPage: number;
+  totalPages: number;
+  totalCount: number;
+  morningCount: number;
+  morningTotal: number;
+  afternoonCount: number;
+  afternoonTotal: number;
+  filters: Filters;
   dbError: boolean;
 }
 
@@ -63,59 +96,75 @@ const NEXT_ACTION_LABELS: Record<OrderStatus, string | null> = {
 };
 
 export default function OrdersDashboardClient({
-  initialMorningOrders,
-  initialAfternoonOrders,
+  orders,
+  currentPage,
+  totalPages,
+  totalCount,
+  morningCount,
+  morningTotal,
+  afternoonCount,
+  afternoonTotal,
+  filters,
   dbError,
 }: OrdersDashboardClientProps) {
-  const [morningOrders, setMorningOrders] = useState<Order[]>(initialMorningOrders);
-  const [afternoonOrders, setAfternoonOrders] = useState<Order[]>(initialAfternoonOrders);
-  const [updatingIds, setUpdatingIds] = useState<Record<string, boolean>>({});
-  const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const router = useRouter();
   const shouldReduceMotion = useReducedMotion();
 
-  // Filtering helper
-  const getFilteredOrders = (ordersList: Order[]) => {
-    if (showUnpaidOnly) {
-      return ordersList.filter((o) => o.paymentStatus === PaymentStatus.PENDING);
-    }
-    return ordersList;
+  // Local state reflecting queries
+  const [ordersList, setOrdersList] = useState<Order[]>(orders);
+  const [updatingIds, setUpdatingIds] = useState<Record<string, boolean>>({});
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Local form inputs mirroring filters
+  const [searchInput, setSearchInput] = useState(filters.search);
+  const [statusInput, setStatusInput] = useState(filters.status);
+  const [paymentInput, setPaymentInput] = useState(filters.paymentStatus);
+
+  // Sync state with incoming props on re-render
+  useEffect(() => {
+    setOrdersList(orders);
+  }, [orders]);
+
+  useEffect(() => {
+    setSearchInput(filters.search);
+    setStatusInput(filters.status);
+    setPaymentInput(filters.paymentStatus);
+  }, [filters]);
+
+  const updateFilters = (updated: Partial<Filters> & { page?: number }) => {
+    const params = new URLSearchParams();
+
+    const merged = {
+      window: updated.window !== undefined ? updated.window : filters.window,
+      status: updated.status !== undefined ? updated.status : statusInput,
+      paymentStatus: updated.paymentStatus !== undefined ? updated.paymentStatus : paymentInput,
+      search: updated.search !== undefined ? updated.search : searchInput,
+      page: updated.page !== undefined ? updated.page : 1,
+    };
+
+    if (merged.window !== 'ALL') params.set('window', merged.window);
+    if (merged.status !== 'ALL') params.set('status', merged.status);
+    if (merged.paymentStatus !== 'ALL') params.set('paymentStatus', merged.paymentStatus);
+    if (merged.search) params.set('search', merged.search);
+    if (merged.page > 1) params.set('page', String(merged.page));
+
+    router.push(`/admin/orders?${params.toString()}`);
   };
 
-  const morningFiltered = getFilteredOrders(morningOrders);
-  const afternoonFiltered = getFilteredOrders(afternoonOrders);
-
-  // Grouping helper
-  const getGroupedOrders = (ordersList: Order[]) => {
-    const groups: Record<string, Order[]> = {};
-    ordersList.forEach((order) => {
-      const key = order.customer.company || 'No Company/Floor Info';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(order);
-    });
-    return groups;
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateFilters({ search: searchInput, page: 1 });
   };
 
-  const morningGrouped = getGroupedOrders(morningFiltered);
-  const afternoonGrouped = getGroupedOrders(afternoonFiltered);
-
-  // Totals calculations based on ALL active orders (unfiltered)
-  const getWindowTotals = (ordersList: Order[]) => {
-    const activeOrders = ordersList.filter((o) => o.status !== OrderStatus.CANCELLED);
-    const count = activeOrders.length;
-    const total = activeOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-    return { count, total };
+  const handleClearFilters = () => {
+    setSearchInput('');
+    setStatusInput('ALL');
+    setPaymentInput('ALL');
+    router.push('/admin/orders');
   };
 
-  const morningTotals = getWindowTotals(morningOrders);
-  const afternoonTotals = getWindowTotals(afternoonOrders);
-
-  // Status transition handler
-  const handleAdvanceStatus = async (
-    orderId: string,
-    currentStatus: OrderStatus,
-    windowType: 'MORNING_11AM' | 'AFTERNOON_4PM'
-  ) => {
+  // Status transition handler with local state feedback
+  const handleAdvanceStatus = async (orderId: string, currentStatus: OrderStatus) => {
     setErrorMsg('');
     setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
     try {
@@ -130,36 +179,33 @@ export default function OrdersDashboardClient({
         };
         const nextStatus = nextStatusMap[currentStatus];
 
-        const updater = (prev: Order[]) =>
-          prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o));
-
-        if (windowType === 'MORNING_11AM') setMorningOrders(updater);
-        else setAfternoonOrders(updater);
+        setOrdersList((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o))
+        );
+        router.refresh();
       } else {
         setErrorMsg(result.error || 'Failed to update order status');
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to connect to database to update status');
+      setErrorMsg('Failed to update status');
     } finally {
       setUpdatingIds((prev) => ({ ...prev, [orderId]: false }));
     }
   };
 
-  // Cancel order handler
-  const handleCancelOrder = async (orderId: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => {
+  // Cancel order handler with confirmation
+  const handleCancelOrder = async (orderId: string) => {
     if (!window.confirm('Are you sure you want to cancel this order?')) return;
-
     setErrorMsg('');
     setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
     try {
       const result = await cancelOrder(orderId);
       if (result.success) {
-        const updater = (prev: Order[]) =>
-          prev.map((o) => (o.id === orderId ? { ...o, status: OrderStatus.CANCELLED } : o));
-
-        if (windowType === 'MORNING_11AM') setMorningOrders(updater);
-        else setAfternoonOrders(updater);
+        setOrdersList((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: OrderStatus.CANCELLED } : o))
+        );
+        router.refresh();
       } else {
         setErrorMsg(result.error || 'Failed to cancel order');
       }
@@ -171,82 +217,101 @@ export default function OrdersDashboardClient({
     }
   };
 
-  // Reconcile payment manually handler
-  const handleConfirmPayment = async (orderId: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => {
+  // Confirm payment manually handler
+  const handleConfirmPayment = async (orderId: string) => {
     setErrorMsg('');
     setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
     try {
       const result = await adminConfirmPayment(orderId);
       if (result.success) {
-        const updater = (prev: Order[]) =>
-          prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: PaymentStatus.PAID, paidBy: 'admin' } : o));
-
-        if (windowType === 'MORNING_11AM') setMorningOrders(updater);
-        else setAfternoonOrders(updater);
+        setOrdersList((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: PaymentStatus.PAID, paidBy: 'admin' } : o))
+        );
+        router.refresh();
       } else {
         setErrorMsg(result.error || 'Failed to confirm payment');
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to connect to database to reconcile payment');
+      setErrorMsg('Failed to reconcile payment');
     } finally {
       setUpdatingIds((prev) => ({ ...prev, [orderId]: false }));
     }
   };
 
-  const handleRefresh = () => {
-    window.location.reload();
+  const handleUpdatePrice = async (orderId: string, newPrice: number): Promise<boolean> => {
+    setErrorMsg('');
+    setUpdatingIds((prev) => ({ ...prev, [orderId]: true }));
+    try {
+      const result = await adminUpdateOrderPrice(orderId, newPrice);
+      if (result.success) {
+        setOrdersList((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, totalAmount: newPrice } : o))
+        );
+        router.refresh();
+        return true;
+      } else {
+        setErrorMsg(result.error || 'Failed to update order price');
+        return false;
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Failed to update price');
+      return false;
+    } finally {
+      setUpdatingIds((prev) => ({ ...prev, [orderId]: false }));
+    }
   };
+
+  // Group current page orders by company
+  const groupedOrders = ordersList.reduce((acc, order) => {
+    const key = order.customer.company || 'No Company/Floor Info';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(order);
+    return acc;
+  }, {} as Record<string, Order[]>);
+
+  const isFiltering = filters.window !== 'ALL' || filters.status !== 'ALL' || filters.paymentStatus !== 'ALL' || filters.search !== '';
 
   return (
     <div className="min-h-screen bg-bg-warm flex flex-col">
       <AdminHeader />
 
       <main className="max-w-6xl mx-auto px-4 py-8 flex-grow w-full flex flex-col gap-6">
-        {/* Dashboard Title & Actions */}
-        <div className="flex justify-between items-center border-b border-brand-deep/10 pb-4">
+        
+        {/* Title row */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-brand-deep/10 pb-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-brand-deep">Today's Orders Dashboard</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-brand-deep">Orders Administration</h1>
             <p className="text-xs opacity-60 mt-1">Real-time catering logs and office batch packaging dispatch</p>
           </div>
-          <motion.button
-            whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
-            onClick={handleRefresh}
-            className="flex items-center gap-1.5 px-4 py-2 border border-brand-deep/10 hover:border-brand-accent bg-white rounded-lg text-xs font-bold text-brand-deep hover:text-brand-accent shadow-xs transition cursor-pointer"
-          >
-            <RefreshCw size={14} />
-            Sync Logs
-          </motion.button>
-        </div>
 
-        {/* 9. Unpaid Orders Filter Control */}
-        <div className="bg-white p-4 rounded-xl border border-brand-deep/5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <label className="flex items-center gap-2.5 text-xs font-extrabold text-brand-deep cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showUnpaidOnly}
-              onChange={(e) => setShowUnpaidOnly(e.target.checked)}
-              className="accent-brand-accent rounded border-brand-deep/20 w-4 h-4 cursor-pointer"
-            />
-            <span className="flex items-center gap-1">
-              <Filter size={12} className="text-brand-accent" />
-              Show Unpaid Orders Only
-            </span>
-          </label>
-          <div className="text-[11px] font-semibold text-brand-deep/60">
-            Total active canteens orders listed: {morningOrders.filter(o => o.status !== 'CANCELLED').length + afternoonOrders.filter(o => o.status !== 'CANCELLED').length}
+          {/* Window Segment Toggle Buttons (ALL, Morning, Afternoon) */}
+          <div className="bg-brand-deep/5 p-1 rounded-xl flex border border-brand-deep/10 shadow-inner w-full md:w-auto relative min-h-[44px] items-center">
+            {[
+              { id: 'ALL', label: 'Whole View' },
+              { id: 'MORNING_11AM', label: '☀️ Morning 11 AM' },
+              { id: 'AFTERNOON_4PM', label: '☕ Afternoon 4 PM' }
+            ].map((win) => {
+              const isSelected = filters.window === win.id;
+              return (
+                <button
+                  key={win.id}
+                  onClick={() => updateFilters({ window: win.id, page: 1 })}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-extrabold text-center transition-all duration-200 cursor-pointer ${
+                    isSelected 
+                      ? 'bg-brand-deep text-bg-warm shadow-sm' 
+                      : 'text-brand-deep/60 hover:text-brand-deep/80'
+                  }`}
+                >
+                  {win.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {dbError && (
-          <div className="bg-alert/15 border border-alert text-ink p-3 rounded-lg flex items-start gap-2">
-            <AlertCircle className="text-alert shrink-0 mt-0.5" size={18} />
-            <span className="text-xs font-semibold">
-              Offline Mode: Connect to database to load actual customer orders.
-            </span>
-          </div>
-        )}
-
+        {/* Global Error Banner */}
         {errorMsg && (
           <div className="bg-alert/15 border border-alert text-ink p-3 rounded-lg flex items-start gap-2">
             <AlertCircle className="text-alert shrink-0 mt-0.5" size={18} />
@@ -254,31 +319,146 @@ export default function OrdersDashboardClient({
           </div>
         )}
 
-        {/* 11:00 AM MORNING WINDOW */}
-        <section className="flex flex-col gap-4">
-          <div className="bg-brand-deep text-bg-warm p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        {dbError && (
+          <div className="bg-alert/15 border border-alert text-ink p-3 rounded-lg flex items-start gap-2">
+            <AlertCircle className="text-alert shrink-0 mt-0.5" size={18} />
+            <span className="text-xs font-semibold">Offline Mode: Database connection not configured.</span>
+          </div>
+        )}
+
+        {/* TODAY ACTIVE WINDOW SUMMARY BAR (Always Today's Totals) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white p-5 rounded-xl border border-brand-deep/5 shadow-xs flex justify-between items-center relative hover:shadow transition duration-200">
             <div>
-              <h2 className="font-extrabold text-md uppercase tracking-wider">🌅 Morning Delivery Window</h2>
-              <p className="text-xs opacity-75 mt-0.5">Targets 11:00 AM delivery batch</p>
+              <span className="text-[10px] uppercase font-bold text-brand-deep/50 block mb-1">Morning Target</span>
+              <h3 className="text-md font-bold text-brand-deep">🌅 Today's 11:00 AM Batch</h3>
             </div>
-            <div className="bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 tabular-nums">
-              {morningTotals.count} Orders · ₹{morningTotals.total} Total
+            <div className="bg-brand-deep text-bg-warm px-3.5 py-2 rounded-lg text-xs font-extrabold shadow-sm tabular-nums">
+              {morningCount} Orders · ₹{morningTotal} Value
             </div>
           </div>
 
-          {morningFiltered.length === 0 ? (
-            <div className="bg-white p-8 text-center text-sm opacity-50 border border-brand-deep/5 rounded-xl">
-              {showUnpaidOnly ? 'No unpaid orders remaining in this window!' : 'No orders registered for the morning window today.'}
+          <div className="bg-white p-5 rounded-xl border border-brand-deep/5 shadow-xs flex justify-between items-center relative hover:shadow transition duration-200">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-brand-deep/50 block mb-1">Afternoon Target</span>
+              <h3 className="text-md font-bold text-brand-deep">☕ Today's 4:00 PM Batch</h3>
             </div>
-          ) : (
-            <div className="flex flex-col gap-6">
-              {Object.entries(morningGrouped).map(([company, ordersList]) => (
-                <div key={company} className="bg-white rounded-xl border border-brand-deep/5 shadow-xs overflow-hidden">
+            <div className="bg-brand-deep text-bg-warm px-3.5 py-2 rounded-lg text-xs font-extrabold shadow-sm tabular-nums">
+              {afternoonCount} Orders · ₹{afternoonTotal} Value
+            </div>
+          </div>
+        </div>
+
+        {/* SEARCH AND FILTERS TOOLBAR */}
+        <div className="bg-white p-4 rounded-xl border border-brand-deep/5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          
+          {/* Left Side: Search Bar form */}
+          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 flex-grow max-w-md w-full">
+            <div className="relative flex-grow">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-brand-deep/40">
+                <Search size={14} />
+              </span>
+              <input
+                type="text"
+                placeholder="Search name, phone, or company..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 text-xs border border-brand-deep/15 rounded-lg focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden text-brand-deep font-semibold"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput('');
+                    updateFilters({ search: '', page: 1 });
+                  }}
+                  className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-brand-deep/40 hover:text-brand-deep"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-brand-deep text-bg-warm font-bold text-xs rounded-lg transition hover:opacity-90 cursor-pointer"
+            >
+              Search
+            </button>
+          </form>
+
+          {/* Right Side: Select Dropdowns & Clears */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="filter-status" className="text-[10px] uppercase font-bold text-brand-deep/50">Status:</label>
+              <select
+                id="filter-status"
+                value={statusInput}
+                onChange={(e) => {
+                  setStatusInput(e.target.value);
+                  updateFilters({ status: e.target.value, page: 1 });
+                }}
+                className="p-2 border border-brand-deep/15 rounded-lg text-xs font-semibold text-brand-deep bg-white focus:outline-hidden"
+              >
+                <option value="ALL">All Statuses</option>
+                {Object.entries(STATUS_LABELS).map(([key, val]) => (
+                  <option key={key} value={key}>{val}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="filter-payment" className="text-[10px] uppercase font-bold text-brand-deep/50">Payment:</label>
+              <select
+                id="filter-payment"
+                value={paymentInput}
+                onChange={(e) => {
+                  setPaymentInput(e.target.value);
+                  updateFilters({ paymentStatus: e.target.value, page: 1 });
+                }}
+                className="p-2 border border-brand-deep/15 rounded-lg text-xs font-semibold text-brand-deep bg-white focus:outline-hidden"
+              >
+                <option value="ALL">All Payments</option>
+                <option value="PENDING">Unpaid</option>
+                <option value="PAID">Paid</option>
+              </select>
+            </div>
+
+            {isFiltering && (
+              <button
+                onClick={handleClearFilters}
+                className="px-3 py-2 border border-alert/20 text-alert hover:bg-alert/5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1"
+              >
+                <X size={12} />
+                Clear
+              </button>
+            )}
+          </div>
+
+        </div>
+
+        {/* ORDERS CONTAINER */}
+        {ordersList.length === 0 ? (
+          <div className="bg-white p-12 text-center text-sm opacity-50 border border-brand-deep/5 rounded-xl shadow-xs italic">
+            No matching orders found in the database.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {Object.entries(groupedOrders).map(([company, ordersList]) => (
+                <motion.div 
+                  key={company} 
+                  layout={!shouldReduceMotion}
+                  initial={shouldReduceMotion ? {} : { opacity: 0, y: 15 }}
+                  animate={shouldReduceMotion ? {} : { opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? {} : { opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.2 }}
+                  className="bg-white rounded-xl border border-brand-deep/5 shadow-xs overflow-hidden"
+                >
                   <div className="bg-bg-warm/30 px-5 py-3 border-b border-brand-deep/5 flex items-center gap-2">
                     <MapPin className="text-brand-accent" size={16} />
                     <span className="font-bold text-sm text-brand-deep">{company}</span>
                     <span className="text-xs bg-brand-deep/5 text-brand-deep px-2 py-0.5 rounded-full font-semibold">
-                      {ordersList.length} delivery batch{ordersList.length > 1 ? 'es' : ''}
+                      {ordersList.length} match{ordersList.length > 1 ? 'es' : ''}
                     </span>
                   </div>
 
@@ -287,66 +467,50 @@ export default function OrdersDashboardClient({
                       <OrderRow
                         key={order.id}
                         order={order}
-                        windowType="MORNING_11AM"
+                        windowType={order.deliveryWindow}
                         isUpdating={!!updatingIds[order.id]}
                         onAdvance={handleAdvanceStatus}
                         onCancel={handleCancelOrder}
                         onConfirmPayment={handleConfirmPayment}
+                        onUpdatePrice={handleUpdatePrice}
                       />
                     ))}
                   </div>
-                </div>
+                </motion.div>
               ))}
-            </div>
-          )}
-        </section>
+            </AnimatePresence>
+          </div>
+        )}
 
-        {/* 4:00 PM AFTERNOON WINDOW */}
-        <section className="flex flex-col gap-4 mt-4">
-          <div className="bg-brand-deep text-bg-warm p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-            <div>
-              <h2 className="font-extrabold text-md uppercase tracking-wider">☕ Afternoon Delivery Window</h2>
-              <p className="text-xs opacity-75 mt-0.5">Targets 4:00 PM delivery batch</p>
+        {/* PAGINATION FOOTER */}
+        {totalPages > 1 && (
+          <div className="bg-white p-4 rounded-xl border border-brand-deep/5 shadow-xs flex items-center justify-between mt-4">
+            <div className="text-xs text-brand-deep/60 font-semibold">
+              Showing page <span className="font-bold text-brand-deep">{currentPage}</span> of <span className="font-bold text-brand-deep">{totalPages}</span> ({totalCount} total matching logs)
             </div>
-            <div className="bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 tabular-nums">
-              {afternoonTotals.count} Orders · ₹{afternoonTotals.total} Total
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => updateFilters({ page: currentPage - 1 })}
+                disabled={currentPage <= 1}
+                className="p-2 border border-brand-deep/15 hover:border-brand-accent rounded-lg text-brand-deep hover:text-brand-accent transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              
+              <button
+                onClick={() => updateFilters({ page: currentPage + 1 })}
+                disabled={currentPage >= totalPages}
+                className="p-2 border border-brand-deep/15 hover:border-brand-accent rounded-lg text-brand-deep hover:text-brand-accent transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                aria-label="Next page"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
           </div>
+        )}
 
-          {afternoonFiltered.length === 0 ? (
-            <div className="bg-white p-8 text-center text-sm opacity-50 border border-brand-deep/5 rounded-xl">
-              {showUnpaidOnly ? 'No unpaid orders remaining in this window!' : 'No orders registered for the afternoon window today.'}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6">
-              {Object.entries(afternoonGrouped).map(([company, ordersList]) => (
-                <div key={company} className="bg-white rounded-xl border border-brand-deep/5 shadow-xs overflow-hidden">
-                  <div className="bg-bg-warm/30 px-5 py-3 border-b border-brand-deep/5 flex items-center gap-2">
-                    <MapPin className="text-brand-accent" size={16} />
-                    <span className="font-bold text-sm text-brand-deep">{company}</span>
-                    <span className="text-xs bg-brand-deep/5 text-brand-deep px-2 py-0.5 rounded-full font-semibold">
-                      {ordersList.length} delivery batch{ordersList.length > 1 ? 'es' : ''}
-                    </span>
-                  </div>
-
-                  <div className="divide-y divide-brand-deep/5">
-                    {ordersList.map((order) => (
-                      <OrderRow
-                        key={order.id}
-                        order={order}
-                        windowType="AFTERNOON_4PM"
-                        isUpdating={!!updatingIds[order.id]}
-                        onAdvance={handleAdvanceStatus}
-                        onCancel={handleCancelOrder}
-                        onConfirmPayment={handleConfirmPayment}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
       </main>
     </div>
   );
@@ -356,9 +520,10 @@ interface OrderRowProps {
   order: Order;
   windowType: 'MORNING_11AM' | 'AFTERNOON_4PM';
   isUpdating: boolean;
-  onAdvance: (id: string, status: OrderStatus, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => void;
-  onCancel: (id: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => void;
-  onConfirmPayment: (id: string, windowType: 'MORNING_11AM' | 'AFTERNOON_4PM') => void;
+  onAdvance: (id: string, status: OrderStatus) => void;
+  onCancel: (id: string) => void;
+  onConfirmPayment: (id: string) => void;
+  onUpdatePrice: (id: string, newPrice: number) => Promise<boolean>;
 }
 
 function OrderRow({
@@ -368,10 +533,30 @@ function OrderRow({
   onAdvance,
   onCancel,
   onConfirmPayment,
+  onUpdatePrice,
 }: OrderRowProps) {
   const nextActionLabel = NEXT_ACTION_LABELS[order.status];
   const isPaid = order.paymentStatus === PaymentStatus.PAID;
   const shouldReduceMotion = useReducedMotion();
+
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [editPriceInput, setEditPriceInput] = useState(String(order.totalAmount));
+
+  useEffect(() => {
+    setEditPriceInput(String(order.totalAmount));
+  }, [order.totalAmount]);
+
+  const handleSavePrice = async () => {
+    const val = parseFloat(editPriceInput);
+    if (isNaN(val) || val < 0) {
+      alert('Please enter a valid price');
+      return;
+    }
+    const success = await onUpdatePrice(order.id, val);
+    if (success) {
+      setIsEditingPrice(false);
+    }
+  };
 
   // Helper for status badge style
   const getStatusColor = (status: OrderStatus) => {
@@ -404,6 +589,9 @@ function OrderRow({
             <Phone size={10} />
             +91 {order.customer.phone}
           </a>
+          <span className="text-[10px] bg-brand-deep/5 border border-brand-deep/15 text-brand-deep px-2 py-0.5 rounded-full font-bold">
+            {windowType === 'MORNING_11AM' ? '🌅 Morning' : '☕ Afternoon'}
+          </span>
           <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full border ${getStatusColor(order.status)}`}>
             {STATUS_LABELS[order.status]}
           </span>
@@ -432,7 +620,7 @@ function OrderRow({
           <ShoppingBag size={12} className="opacity-55" />
           {order.items.map((item) => (
             <span key={item.id} className="font-medium">
-              {item.menuItem.name} <span className="opacity-60">x {item.quantity}</span>
+              {item.menuItem.name} <span className="opacity-60 text-[10px] ml-0.5">x{item.quantity}</span>
             </span>
           ))}
         </div>
@@ -447,8 +635,47 @@ function OrderRow({
 
       {/* Pricing, Payment & Advance button */}
       <div className="shrink-0 flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 border-brand-deep/5 pt-3 md:pt-0">
-        <div className="text-left md:text-right">
-          <p className="text-sm font-extrabold text-brand-deep tabular-nums">₹{order.totalAmount}</p>
+        <div className="text-left md:text-right flex flex-col items-start md:items-end min-w-[120px]">
+          {isEditingPrice ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={editPriceInput}
+                onChange={(e) => setEditPriceInput(e.target.value)}
+                className="w-16 p-1 text-xs border border-brand-deep/20 rounded focus:outline-hidden text-brand-deep font-semibold"
+                min="0"
+                step="0.01"
+              />
+              <button
+                onClick={handleSavePrice}
+                className="p-1 bg-fresh text-bg-warm rounded hover:opacity-90 cursor-pointer flex items-center justify-center w-5 h-5"
+                title="Save Price"
+              >
+                <Check size={10} />
+              </button>
+              <button
+                onClick={() => {
+                  setIsEditingPrice(false);
+                  setEditPriceInput(String(order.totalAmount));
+                }}
+                className="p-1 bg-alert/15 text-alert rounded hover:opacity-90 cursor-pointer flex items-center justify-center w-5 h-5"
+                title="Cancel"
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 group">
+              <p className="text-sm font-extrabold text-brand-deep tabular-nums">₹{order.totalAmount}</p>
+              <button
+                onClick={() => setIsEditingPrice(true)}
+                className="text-brand-deep/30 hover:text-brand-accent cursor-pointer transition p-0.5 rounded"
+                title="Edit Price"
+              >
+                <Pencil size={10} />
+              </button>
+            </div>
+          )}
           <p className="text-[10px] opacity-60 font-semibold mt-0.5">
             {order.paymentMethod === PaymentMethod.UPI_QR ? 'UPI QR Link' : 'Cash on Delivery'}
           </p>
@@ -459,7 +686,7 @@ function OrderRow({
           {!isPaid && order.status !== OrderStatus.CANCELLED && (
             <motion.button
               whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
-              onClick={() => onConfirmPayment(order.id, windowType)}
+              onClick={() => onConfirmPayment(order.id)}
               disabled={isUpdating}
               className="px-3 py-2 bg-white hover:bg-fresh border border-fresh/35 text-fresh hover:text-bg-warm text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 animate-none"
               title="Confirm Payment"
@@ -473,7 +700,7 @@ function OrderRow({
           {order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.CANCELLED && (
             <motion.button
               whileTap={shouldReduceMotion ? {} : { scale: 0.9 }}
-              onClick={() => onCancel(order.id, windowType)}
+              onClick={() => onCancel(order.id)}
               disabled={isUpdating}
               className="p-2 border border-brand-deep/10 hover:border-alert hover:bg-alert/5 text-brand-deep/40 hover:text-alert rounded-lg transition disabled:opacity-40 cursor-pointer animate-none"
               title="Cancel Order"
@@ -486,7 +713,7 @@ function OrderRow({
           {nextActionLabel && (
             <motion.button
               whileTap={shouldReduceMotion ? {} : { scale: 0.96 }}
-              onClick={() => onAdvance(order.id, order.status, windowType)}
+              onClick={() => onAdvance(order.id, order.status)}
               disabled={isUpdating}
               className={`px-4 py-2 text-xs font-bold rounded-lg shadow-xs transition duration-150 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer animate-none ${
                 order.status === OrderStatus.PLACED

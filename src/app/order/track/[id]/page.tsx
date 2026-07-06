@@ -37,7 +37,7 @@ export default async function TrackOrderPage({ params }: TrackPageProps) {
 
   // Generate UPI QR Code (base64 Data URL) if order exists and payment is PENDING
   let qrCodeDataUrl = '';
-  if (order.paymentMethod === 'UPI_QR' && order.paymentStatus === 'PENDING') {
+  if (order.paymentMethod === 'UPI_QR' && order.paymentStatus === 'PENDING' && Number(order.totalAmount) > 0) {
     try {
       qrCodeDataUrl = await generateUPIQRCode(Number(order.totalAmount), order.id);
     } catch (e) {

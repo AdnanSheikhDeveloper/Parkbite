@@ -33,7 +33,7 @@ export function getAvailableWindows(): {
   // Morning 11:00 AM closes at 10:00 AM (600 mins)
   // Afternoon 4:00 PM closes at 3:00 PM (900 mins)
   const morningCutoff = 10 * 60;
-  const afternoonCutoff = 15 * 60;
+  const afternoonCutoff = 15 * 60 + 30; // 3:30 PM cutoff
 
   const todayStr = formatDateIST(nowIST);
   const tomorrow = new Date(nowIST.getTime() + 24 * 60 * 60 * 1000);
@@ -74,7 +74,7 @@ export function isWindowOpen(targetDateStr: string, window: 'MORNING_11AM' | 'AF
     if (window === 'MORNING_11AM') {
       return timeInMinutes < 10 * 60; // 10:00 AM cutoff
     } else {
-      return timeInMinutes < 15 * 60; // 3:00 PM cutoff
+      return timeInMinutes < (15 * 60 + 30); // 3:30 PM cutoff
     }
   } else if (targetDateStr === tomorrowStr) {
     // Ordering for tomorrow is always allowed
@@ -107,8 +107,8 @@ export function getDeliveryIntervals(istDate: Date = getISTDate()): {
 
   // Afternoon window for date D (IST):
   // Placed between (D-1) 3:00 PM IST and D 3:00 PM IST
-  const afternoonStartIST = new Date(Date.UTC(yyyy, mm, dd - 1, 15, 0, 0));
-  const afternoonEndIST = new Date(Date.UTC(yyyy, mm, dd, 15, 0, 0));
+  const afternoonStartIST = new Date(Date.UTC(yyyy, mm, dd - 1, 15, 30, 0));
+  const afternoonEndIST = new Date(Date.UTC(yyyy, mm, dd, 15, 30, 0));
 
   // Subtract 5.5 hours to convert IST representation back to correct UTC
   const istOffsetMs = 5.5 * 60 * 60 * 1000;

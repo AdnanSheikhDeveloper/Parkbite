@@ -72,9 +72,6 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
   // Time ticker state to trigger relative time re-renders
   const [timeTicker, setTimeTicker] = useState(0);
 
-  // Customer self-report loading state
-  const [isSelfReporting, setIsSelfReporting] = useState(false);
-
   // Poll status every 15 seconds
   useEffect(() => {
     const pollInterval = setInterval(async () => {
@@ -122,25 +119,6 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
     if (diffHours < 24) return `updated ${diffHours} hours ago`;
     
     return `updated on ${date.toLocaleDateString()}`;
-  };
-
-  const handleSelfReport = async () => {
-    if (isSelfReporting) return;
-    setIsSelfReporting(true);
-    try {
-      const res = await customerSelfReportPayment(order.id);
-      if (res.success) {
-        setPaymentStatus(PaymentStatus.PAID);
-        setPaidBy('customer-reported');
-      } else {
-        alert(res.error || 'Failed to submit payment report');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('A network error occurred. Please try again.');
-    } finally {
-      setIsSelfReporting(false);
-    }
   };
 
   const [rating, setRating] = useState(0);
@@ -366,32 +344,36 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
           </h3>
 
           {paymentStatus === PaymentStatus.PENDING ? (
-            <div className="flex flex-col items-center gap-4 w-full max-w-xs">
-              <div className="bg-bg-warm p-4 rounded-2xl border border-brand-deep/10 shadow-inner">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img 
-                  src={qrCodeDataUrl} 
-                  alt="UPI QR Code" 
-                  className="w-48 h-48 mx-auto"
-                />
-              </div>
-              
-              <div className="text-xs text-brand-deep opacity-80 leading-relaxed font-semibold">
-                Scan to pay <span className="text-brand-accent font-extrabold text-sm">₹{order.totalAmount}</span> — or pay cash at delivery.
-              </div>
+            order.totalAmount > 0 ? (
+              <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+                <div className="bg-bg-warm p-4 rounded-2xl border border-brand-deep/10 shadow-inner">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img 
+                    src={qrCodeDataUrl} 
+                    alt="UPI QR Code" 
+                    className="w-48 h-48 mx-auto"
+                  />
+                </div>
+                
+                <div className="text-xs text-brand-deep opacity-80 leading-relaxed font-semibold">
+                  Scan to pay <span className="text-brand-accent font-extrabold text-sm">₹{order.totalAmount}</span> — or pay cash at delivery.
+                </div>
 
-              {/* Customer self-reporting button */}
-              <button
-                onClick={handleSelfReport}
-                disabled={isSelfReporting}
-                className="w-full mt-2 py-2 px-4 bg-brand-accent hover:bg-brand-accent/90 disabled:opacity-50 text-bg-warm font-bold rounded-lg text-xs shadow-xs transition"
-              >
-                {isSelfReporting ? 'Submitting...' : "I've paid"}
-              </button>
-              <p className="text-[9px] text-ink/40 italic">
-                Clicking "I've paid" self-reports transaction to operator. We will verify balance manually.
-              </p>
-            </div>
+                <p className="text-[10px] text-ink/65 italic bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed mt-2 text-left w-full">
+                  ℹ️ Once you pay using GPay, PhonePe, or Paytm, the operator will verify the transaction balance manually. The status will update to Paid as soon as it is reconciled.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 w-full max-w-xs text-center">
+                <div className="bg-bg-warm/50 border border-dashed border-brand-deep/15 p-6 rounded-xl w-full">
+                  <span className="text-2xl animate-pulse">⏳</span>
+                  <p className="text-xs font-bold text-brand-deep mt-2">Price Verification Pending</p>
+                  <p className="text-[10px] text-brand-deep/60 mt-1">
+                    Our team is checking items and original store rates. The payment QR code will be generated here once the price is updated.
+                  </p>
+                </div>
+              </div>
+            )
           ) : (
             <div className="bg-fresh/15 border border-fresh text-fresh py-4 px-8 rounded-xl font-extrabold text-sm flex items-center gap-2">
               <Check className="ring-2 ring-fresh bg-fresh/10 rounded-full p-0.5" size={16} />

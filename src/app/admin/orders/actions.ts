@@ -84,3 +84,28 @@ export async function adminConfirmPayment(
     return { success: false, error: 'Database error updating payment status' };
   }
 }
+
+/**
+ * Updates the total amount of an order.
+ */
+export async function adminUpdateOrderPrice(
+  orderId: string,
+  newPrice: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (newPrice < 0) {
+      return { success: false, error: 'Price cannot be negative' };
+    }
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { totalAmount: newPrice },
+    });
+    revalidatePath('/admin/orders');
+    revalidatePath('/rider');
+    revalidatePath(`/order/track/${orderId}`);
+    return { success: true };
+  } catch (error) {
+     console.error('Failed to update order price:', error);
+     return { success: false, error: 'Database error updating price' };
+  }
+}
