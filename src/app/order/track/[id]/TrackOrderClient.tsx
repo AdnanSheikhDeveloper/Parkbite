@@ -6,6 +6,7 @@ import { ShoppingBag, Clock, MapPin, Check, RefreshCw, AlertCircle, Info, Landma
 import Link from 'next/link';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { customerSelfReportPayment } from '../actions';
+import { submitFeedback } from '../actions';
 
 interface MenuItem {
   name: string;
@@ -37,6 +38,12 @@ interface Order {
     company: string | null;
   };
   items: OrderItem[];
+  feedback?: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    createdAt: string;
+  } | null;
 }
 
 interface TrackOrderClientProps {
@@ -133,6 +140,32 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
       alert('A network error occurred. Please try again.');
     } finally {
       setIsSelfReporting(false);
+    }
+  };
+
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (rating === 0) return;
+    setIsSubmittingFeedback(true);
+    setFeedbackError('');
+    try {
+      const res = await submitFeedback(order.id, rating, comment);
+      if (res.success) {
+        setFeedbackSubmitted(true);
+      } else {
+        setFeedbackError(res.error || 'Failed to submit feedback');
+      }
+    } catch (err) {
+      console.error(err);
+      setFeedbackError('An error occurred. Please try again.');
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -240,6 +273,89 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
           * Live tracking is active. Status updates automatically every 15 seconds.
         </p>
       </div>
+
+      {/* Referral & Feedback Blocks (shown only if status is DELIVERED) */}
+      {status === OrderStatus.DELIVERED && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Share / Referral Card */}
+          <div className="bg-white p-5 rounded-xl border border-brand-deep/5 shadow-xs flex flex-col justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-bold text-brand-deep flex items-center gap-1.5">
+                📢 Share with your floor
+              </h3>
+              <p className="text-xs text-ink/75 mt-1 leading-relaxed">
+                Enjoyed your delivery? Share the love with your coworkers on WhatsApp so they can catch the next delivery cutoff!
+              </p>
+            </div>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `Just got ${itemSummary || 'food'} delivered to my desk from ParkBite Express — order before ${
+                  new Date().getHours() < 10 ? '10:00 AM' : new Date().getHours() < 15 ? '3:00 PM' : '10:00 AM'
+                } at ${typeof window !== 'undefined' ? window.location.origin : ''}`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 bg-[#25D366] hover:bg-[#20BA56] text-white font-bold text-center rounded-lg text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              Share on WhatsApp
+            </a>
+          </div>
+
+          {/* Feedback Capture Card */}
+          <div className="bg-white p-5 rounded-xl border border-brand-deep/5 shadow-xs flex flex-col justify-between gap-4">
+            {feedbackSubmitted || order.feedback ? (
+              <div className="flex flex-col items-center justify-center h-full text-center py-4">
+                <Check className="text-fresh ring-4 ring-fresh/10 bg-fresh/5 rounded-full p-1 mb-2 animate-none" size={32} />
+                <h4 className="font-bold text-brand-deep text-sm">Thanks for your feedback!</h4>
+                <p className="text-xs text-ink/60 mt-1">We read every note to make ParkBite even better.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleFeedbackSubmit} className="flex flex-col gap-3">
+                <h3 className="text-sm font-bold text-brand-deep">
+                  ⭐ How was your food?
+                </h3>
+                
+                {/* Stars container */}
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className="p-1 cursor-pointer focus:outline-hidden"
+                      aria-label={`Rate ${star} stars`}
+                    >
+                      <span className={`text-2xl transition ${star <= rating ? 'text-brand-accent' : 'text-brand-deep/15'}`}>
+                        ★
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Any comments? (optional)"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  className="w-full p-2 text-xs border border-brand-deep/15 rounded-md focus:border-brand-accent focus:ring-1 focus:ring-brand-accent focus:outline-hidden"
+                />
+
+                {feedbackError && (
+                  <span className="text-[10px] text-alert font-semibold">{feedbackError}</span>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={rating === 0 || isSubmittingFeedback}
+                  className="w-full py-2.5 bg-brand-deep hover:bg-brand-deep/90 disabled:opacity-50 text-bg-warm font-bold rounded-lg text-xs transition cursor-pointer"
+                >
+                  {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* UPI QR Payment Block (Phase 3 core) */}
       {order.paymentMethod === 'UPI_QR' && (

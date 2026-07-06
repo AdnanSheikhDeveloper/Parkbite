@@ -19,6 +19,7 @@ export default async function TrackOrderPage({ params }: TrackPageProps) {
       where: { id },
       include: {
         customer: true,
+        feedback: true,
         items: {
           include: {
             menuItem: true,
@@ -58,6 +59,12 @@ export default async function TrackOrderPage({ params }: TrackPageProps) {
     customRequest: order.customRequest,
     createdAt: order.createdAt.toISOString(),
     statusUpdatedAt: order.statusUpdatedAt.toISOString(),
+    feedback: order.feedback ? {
+      id: order.feedback.id,
+      rating: order.feedback.rating,
+      comment: order.feedback.comment,
+      createdAt: order.feedback.createdAt.toISOString(),
+    } : null,
     customer: {
       name: order.customer.name,
       phone: order.customer.phone,

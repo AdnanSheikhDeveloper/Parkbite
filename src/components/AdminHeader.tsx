@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, UtensilsCrossed, ExternalLink, LogOut } from 'lucide-react';
+import { LayoutDashboard, UtensilsCrossed, BarChart3, ExternalLink, LogOut } from 'lucide-react';
 import { logoutAdmin } from '@/app/admin/actions';
 
 export default function AdminHeader() {
@@ -17,6 +17,7 @@ export default function AdminHeader() {
   const navItems = [
     { href: '/admin/orders', label: 'Orders Dashboard', icon: LayoutDashboard },
     { href: '/admin/menu', label: 'Manage Menu', icon: UtensilsCrossed },
+    { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   ];
 
   return (

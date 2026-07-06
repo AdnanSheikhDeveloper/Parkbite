@@ -50,6 +50,7 @@ model Order {
   paidBy          String?       // "rider", "admin", or "customer-reported"
   customRequest   String?
   items           OrderItem[]
+  feedback        Feedback?
   createdAt       DateTime      @default(now())
   statusUpdatedAt DateTime      @default(now()) @updatedAt
 }
@@ -86,3 +87,13 @@ model OrderItem {
   quantity     Int
   priceAtOrder Decimal
 }
+
+model Feedback {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id])
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
