@@ -222,29 +222,41 @@ export default function RiderDashboardClient({
       <div className="max-w-md mx-auto px-4 py-6 w-full flex-grow flex flex-col gap-5">
         
         {/* Toggle delivery window */}
-        <div className="bg-brand-deep/5 p-1 rounded-2xl flex border border-brand-deep/10 shadow-inner">
-          <motion.button
-            whileTap={shouldReduceMotion ? {} : { scale: 0.98 }}
+        <div className="bg-brand-deep/5 p-1 rounded-2xl flex border border-brand-deep/10 shadow-inner relative z-10 min-h-[46px] items-center">
+          <button
             onClick={() => setSelectedWindow('MORNING_11AM')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold text-center transition duration-200 cursor-pointer ${
+            className={`relative flex-1 py-2.5 rounded-xl text-xs font-extrabold text-center transition duration-200 cursor-pointer select-none ${
               selectedWindow === 'MORNING_11AM'
-                ? 'bg-brand-deep text-bg-warm shadow-sm'
+                ? 'text-bg-warm font-bold'
                 : 'text-brand-deep/70 hover:text-brand-deep hover:bg-brand-deep/5'
             }`}
           >
+            {selectedWindow === 'MORNING_11AM' && (
+              <motion.span
+                layoutId="activeRiderWindowPill"
+                className="absolute inset-0 bg-brand-deep rounded-xl -z-10 shadow-sm"
+                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              />
+            )}
             ☀️ Morning Window
-          </motion.button>
-          <motion.button
-            whileTap={shouldReduceMotion ? {} : { scale: 0.98 }}
+          </button>
+          <button
             onClick={() => setSelectedWindow('AFTERNOON_4PM')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold text-center transition duration-200 cursor-pointer ${
+            className={`relative flex-1 py-2.5 rounded-xl text-xs font-extrabold text-center transition duration-200 cursor-pointer select-none ${
               selectedWindow === 'AFTERNOON_4PM'
-                ? 'bg-brand-deep text-bg-warm shadow-sm'
+                ? 'text-bg-warm font-bold'
                 : 'text-brand-deep/70 hover:text-brand-deep hover:bg-brand-deep/5'
             }`}
           >
+            {selectedWindow === 'AFTERNOON_4PM' && (
+              <motion.span
+                layoutId="activeRiderWindowPill"
+                className="absolute inset-0 bg-brand-deep rounded-xl -z-10 shadow-sm"
+                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              />
+            )}
             ☕ Afternoon Window
-          </motion.button>
+          </button>
         </div>
 
         {/* Section Totals Summary Banner */}

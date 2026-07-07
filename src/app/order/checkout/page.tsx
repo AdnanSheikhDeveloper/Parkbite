@@ -55,7 +55,10 @@ export default function CheckoutPage() {
       if (savedWindow) setDeliveryWindow(savedWindow as any);
       if (savedWindowLabel) setWindowLabel(savedWindowLabel);
       if (savedTargetDate) setTargetDate(savedTargetDate);
-      if (savedRequest) setCustomRequest(savedRequest);
+      if (savedRequest) {
+        setCustomRequest(savedRequest);
+        setPaymentMethod('CASH'); // Force cash payment for custom requests
+      }
     } catch (e) {
       console.error('Failed to load checkout state', e);
       router.replace('/order');
@@ -100,6 +103,18 @@ export default function CheckoutPage() {
         items: cart.map((i) => ({ menuItemId: i.menuItemId, quantity: i.quantity })),
       });
       if (result.success && result.orderId) {
+        // Save order ID to customer history in localStorage
+        try {
+          const savedHistory = localStorage.getItem('parkbite_order_history');
+          const history = savedHistory ? JSON.parse(savedHistory) : [];
+          if (!history.includes(result.orderId)) {
+            history.unshift(result.orderId);
+            localStorage.setItem('parkbite_order_history', JSON.stringify(history));
+          }
+        } catch (e) {
+          console.error('Failed to save to order history:', e);
+        }
+
         // Clear local storage cart
         localStorage.removeItem('parkbite_cart');
         localStorage.removeItem('parkbite_custom_request');
@@ -225,25 +240,28 @@ export default function CheckoutPage() {
               Payment Method
             </label>
             <div className="grid grid-cols-2 gap-4">
-              <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
-                paymentMethod === 'UPI_QR' 
-                  ? 'border-brand-accent bg-brand-accent/5 font-semibold text-brand-deep' 
-                  : 'border-brand-deep/10 hover:bg-bg-warm/10'
-              }`}>
-                <input
-                  type="radio"
-                  name="payment"
-                  checked={paymentMethod === 'UPI_QR'}
-                  onChange={() => setPaymentMethod('UPI_QR')}
-                  className="accent-brand-accent"
-                />
-                <div className="text-xs">
-                  <span className="block">Pay by UPI QR</span>
-                  <span className="opacity-60 text-[10px]">Scan QR code after placing order</span>
-                </div>
-              </label>
+              {customRequest.trim() === '' && (
+                <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
+                  paymentMethod === 'UPI_QR' 
+                    ? 'border-brand-accent bg-brand-accent/5 font-semibold text-brand-deep' 
+                    : 'border-brand-deep/10 hover:bg-bg-warm/10'
+                }`}>
+                  <input
+                    type="radio"
+                    name="payment"
+                    checked={paymentMethod === 'UPI_QR'}
+                    onChange={() => setPaymentMethod('UPI_QR')}
+                    className="accent-brand-accent"
+                  />
+                  <div className="text-xs">
+                    <span className="block">Pay by UPI QR</span>
+                    <span className="opacity-60 text-[10px]">Scan QR code after placing order</span>
+                  </div>
+                </label>
+              )}
 
               <label className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
+                customRequest.trim() !== '' ? 'col-span-2 border-brand-accent bg-brand-accent/5 font-semibold text-brand-deep' :
                 paymentMethod === 'CASH' 
                   ? 'border-brand-accent bg-brand-accent/5 font-semibold text-brand-deep' 
                   : 'border-brand-deep/10 hover:bg-bg-warm/10'
@@ -254,10 +272,16 @@ export default function CheckoutPage() {
                   checked={paymentMethod === 'CASH'}
                   onChange={() => setPaymentMethod('CASH')}
                   className="accent-brand-accent"
+                  disabled={customRequest.trim() !== ''}
                 />
                 <div className="text-xs">
-                  <span className="block">Pay cash at delivery</span>
-                  <span className="opacity-60 text-[10px]">Pay physical cash to delivery rider</span>
+                  <span className="block">Pay cash at delivery {customRequest.trim() !== '' && '(Required)'}</span>
+                  <span className="opacity-60 text-[10px]">
+                    {customRequest.trim() !== '' 
+                      ? 'Custom orders require price verification. Pay physical cash or UPI at delivery.' 
+                      : 'Pay physical cash to delivery rider'
+                    }
+                  </span>
                 </div>
               </label>
             </div>
@@ -316,11 +340,28 @@ export default function CheckoutPage() {
             <div className="border-t border-brand-deep/10 pt-3 flex flex-col gap-2 text-brand-deep">
               <div className="flex justify-between items-center font-bold text-sm">
                 <span>Total to Pay</span>
-                <span className="tabular-nums">
-                  {cart.length > 0 ? `₹${cartTotal}` : 'Price Pending'}
+                <span className="tabular-nums font-black text-brand-deep">
+                  {cart.length > 0 ? (
+                    customRequest.trim() !== '' ? (
+                      <span className="text-xs font-black text-brand-deep">₹{cartTotal} + Custom Price TBD</span>
+                    ) : (
+                      `₹${cartTotal}`
+                    )
+                  ) : (
+                    'Price Pending'
+                  )}
                 </span>
               </div>
-              {cart.length === 0 && (
+              {customRequest.trim() !== '' && (
+                <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
+                  {cart.length > 0 ? (
+                    `⚠️ Note: Canteen item price of ₹${cartTotal} is finalized. Additional charges for your custom request ("${customRequest}") will be verified and added to the bill by the operator.`
+                  ) : (
+                    `⚠️ Note: Additional charges for your custom request ("${customRequest}") will be verified and added to the bill by the operator.`
+                  )}
+                </p>
+              )}
+              {cart.length === 0 && customRequest.trim() === '' && (
                 <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
                   ⚠️ Price will be finalized by the operator based on the original shop rates, platform convenience fees, and delivery charges. The final total will update on your tracking page.
                 </p>

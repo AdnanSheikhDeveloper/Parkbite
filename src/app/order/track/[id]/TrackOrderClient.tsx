@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { ShoppingBag, Clock, MapPin, Check, RefreshCw, AlertCircle, Info, Landmark } from 'lucide-react';
 import Link from 'next/link';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { motion, AnimatePresence } from 'framer-motion';
 import { customerSelfReportPayment } from '../actions';
 import { submitFeedback } from '../actions';
 
@@ -217,17 +218,27 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
 
                 return (
                   <div key={step.status} className="relative z-10 flex flex-col items-center gap-2">
-                    <div 
+                    <motion.div 
+                      animate={isCurrent ? { scale: [1, 1.08, 1] } : {}}
+                      transition={isCurrent ? { repeat: Infinity, duration: 2, ease: "easeInOut" } : {}}
                       className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs border-2 transition-all duration-300 ${
                         isCompleted 
                           ? 'bg-fresh border-fresh text-bg-warm shadow' 
                           : isCurrent
-                          ? 'bg-brand-accent border-brand-accent text-bg-warm shadow-md ring-4 ring-brand-accent/20 animate-pulse'
+                          ? 'bg-brand-accent border-brand-accent text-bg-warm shadow-md ring-4 ring-brand-accent/20'
                           : 'bg-white border-brand-deep/20 text-brand-deep/50'
                       }`}
                     >
-                      {isCompleted ? <Check size={16} /> : index + 1}
-                    </div>
+                      {isCompleted ? (
+                        <motion.div
+                          initial={{ scale: 0, rotate: -45 }}
+                          animate={{ scale: 1, rotate: 0 }}
+                          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                        >
+                          <Check size={16} />
+                        </motion.div>
+                      ) : index + 1}
+                    </motion.div>
                     <div className="flex flex-col items-center">
                       <span className={`text-[10px] md:text-xs font-bold text-center ${
                         isDoneOrCurrent ? 'text-brand-deep' : 'text-brand-deep/40'
@@ -296,17 +307,19 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
                 {/* Stars container */}
                 <div className="flex items-center gap-1">
                   {[1, 2, 3, 4, 5].map((star) => (
-                    <button
+                    <motion.button
                       key={star}
                       type="button"
                       onClick={() => setRating(star)}
+                      whileHover={{ scale: 1.25 }}
+                      whileTap={{ scale: 0.9 }}
                       className="p-1 cursor-pointer focus:outline-hidden"
                       aria-label={`Rate ${star} stars`}
                     >
                       <span className={`text-2xl transition ${star <= rating ? 'text-brand-accent' : 'text-brand-deep/15'}`}>
                         ★
                       </span>
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
 
@@ -392,7 +405,16 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
           <Info className="text-brand-accent shrink-0 mt-0.5" size={18} />
           <div className="text-xs text-brand-deep">
             <span className="font-bold block">Cash Payment Selected</span>
-            <span className="opacity-75">Please pay ₹{order.totalAmount} in cash directly to the delivery person.</span>
+            {order.customRequest ? (
+              <span className="opacity-75">
+                {order.status === 'PLACED' 
+                  ? `Please pay ₹${order.totalAmount} + custom request charges at delivery (pending verification).`
+                  : `Please pay the finalized amount of ₹${order.totalAmount} in cash or UPI at delivery.`
+                }
+              </span>
+            ) : (
+              <span className="opacity-75">Please pay ₹{order.totalAmount} in cash directly to the delivery person.</span>
+            )}
           </div>
         </div>
       )}
@@ -444,7 +466,16 @@ export default function TrackOrderClient({ order, qrCodeDataUrl }: TrackOrderCli
         {/* Total */}
         <div className="border-t border-brand-deep/10 pt-4 flex justify-between items-center font-bold text-brand-deep">
           <span>Grand Total</span>
-          <span>₹{order.totalAmount}</span>
+          <div className="text-right">
+            <span className="tabular-nums">₹{order.totalAmount}</span>
+            {order.customRequest && (
+              <span className={`text-[10px] font-bold block mt-0.5 ${
+                order.status === 'PLACED' ? 'text-brand-accent' : 'text-fresh'
+              }`}>
+                {order.status === 'PLACED' ? '* Custom price pending verification' : '(Includes custom item charges)'}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

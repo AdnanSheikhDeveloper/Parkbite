@@ -287,7 +287,7 @@ export default function OrdersDashboardClient({
           </div>
 
           {/* Window Segment Toggle Buttons (ALL, Morning, Afternoon) */}
-          <div className="bg-brand-deep/5 p-1 rounded-xl flex border border-brand-deep/10 shadow-inner w-full md:w-auto relative min-h-[44px] items-center">
+          <div className="bg-brand-deep/5 p-1 rounded-xl flex border border-brand-deep/10 shadow-inner w-full md:w-auto relative min-h-[44px] items-center z-10">
             {[
               { id: 'ALL', label: 'Whole View' },
               { id: 'MORNING_11AM', label: '☀️ Morning 11 AM' },
@@ -298,12 +298,19 @@ export default function OrdersDashboardClient({
                 <button
                   key={win.id}
                   onClick={() => updateFilters({ window: win.id, page: 1 })}
-                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-extrabold text-center transition-all duration-200 cursor-pointer ${
+                  className={`relative flex-1 py-1.5 px-3 rounded-lg text-xs font-extrabold text-center transition-all duration-200 cursor-pointer select-none ${
                     isSelected 
-                      ? 'bg-brand-deep text-bg-warm shadow-sm' 
+                      ? 'text-bg-warm font-bold' 
                       : 'text-brand-deep/60 hover:text-brand-deep/80'
                   }`}
                 >
+                  {isSelected && (
+                    <motion.span
+                      layoutId="activeAdminWindowPill"
+                      className="absolute inset-0 bg-brand-deep rounded-lg -z-10 shadow-xs"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
                   {win.label}
                 </button>
               );

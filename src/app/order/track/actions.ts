@@ -75,3 +75,35 @@ export async function submitFeedback(
     return { success: false, error: 'Failed to submit feedback' };
   }
 }
+
+/**
+ * Retrieves the details of multiple orders by ID for the customer's history.
+ */
+export async function getCustomerOrderHistory(orderIds: string[]) {
+  if (!orderIds || orderIds.length === 0) return [];
+  try {
+    const orders = await prisma.order.findMany({
+      where: {
+        id: { in: orderIds },
+      },
+      include: {
+        items: {
+          include: {
+            menuItem: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+    return orders;
+  } catch (error) {
+    console.error('Failed to retrieve order history:', error);
+    return [];
+  }
+}

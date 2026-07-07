@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, Plus, Minus, Info, AlertTriangle, Trash2 } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Info, AlertTriangle, Trash2, X, ClipboardList, Clock, Loader2, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { getCustomerOrderHistory } from './track/actions';
 import { DeliveryWindowOption } from '@/lib/date-utils';
 import { motion, AnimatePresence, useReducedMotion, useMotionValue, useTransform, animate } from 'framer-motion';
 import SteamCanvas from '@/components/SteamCanvas';
@@ -81,6 +83,68 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
   const [customRequest, setCustomRequest] = useState('');
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [orderHistory, setOrderHistory] = useState<any[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  // Group items by category (defined early to avoid TDZ reference errors in hooks)
+  const groupedItems = CATEGORIES_ORDER.reduce((acc, cat) => {
+    acc[cat.id] = initialMenuItems.filter((item) => item.category === cat.id);
+    return acc;
+  }, {} as Record<string, MenuItem[]>);
+
+  const handleOpenHistory = async () => {
+    setIsHistoryOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const savedHistory = localStorage.getItem('parkbite_order_history');
+      const historyIds = savedHistory ? JSON.parse(savedHistory) : [];
+      if (historyIds.length > 0) {
+        const fetchedHistory = await getCustomerOrderHistory(historyIds);
+        setOrderHistory(fetchedHistory);
+      } else {
+        setOrderHistory([]);
+      }
+    } catch (e) {
+      console.error('Failed to load order history', e);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const [activeCategory, setActiveCategory] = useState('');
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const catId = entry.target.id.replace('category-', '');
+            setActiveCategory(catId);
+          }
+        });
+      },
+      {
+        rootMargin: '-190px 0px -60% 0px',
+      }
+    );
+
+    CATEGORIES_ORDER.forEach((cat) => {
+      const el = document.getElementById(`category-${cat.id}`);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [groupedItems]);
+
+  const scrollToCategory = (catId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const el = document.getElementById(`category-${catId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveCategory(catId);
+    }
+  };
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -207,59 +271,97 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
     router.push('/order/checkout');
   };
 
-  // Group items by category
-  const groupedItems = CATEGORIES_ORDER.reduce((acc, cat) => {
-    acc[cat.id] = initialMenuItems.filter((item) => item.category === cat.id);
-    return acc;
-  }, {} as Record<string, MenuItem[]>);
+
 
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header Banner */}
-      <header className="bg-brand-deep text-bg-warm py-6 px-4 shadow-md sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2 relative">
-              <span className="relative">
-                🍜
-                <SteamCanvas />
-              </span>
-              <span className="font-display">ParkBite Express</span>
-            </h1>
-            <p className="text-sm opacity-80 mt-1">Hyperlocal fresh food delivered straight to your IT park desk</p>
+      <header className="bg-brand-deep text-bg-warm py-4 px-4 shadow-md sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-2 relative">
+                <span className="relative">
+                  🍜
+                  <SteamCanvas />
+                </span>
+                <span className="font-display">ParkBite Express</span>
+              </h1>
+              <p className="text-sm opacity-80 mt-1">Hyperlocal fresh food delivered straight to your IT park desk</p>
+            </div>
+            
+            <div className="flex items-center gap-3 flex-wrap md:flex-nowrap">
+              {/* My Orders button */}
+              <button
+                onClick={handleOpenHistory}
+                className="px-4 py-2 bg-white/5 border border-bg-warm/15 hover:border-brand-accent hover:bg-white/10 rounded-lg text-xs font-bold text-bg-warm transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <ClipboardList size={14} className="text-brand-accent" />
+                My Orders
+              </button>
+
+              {/* Delivery Window Picker */}
+              <div className="bg-bg-warm/10 p-1.5 rounded-lg flex items-center gap-1 border border-bg-warm/20">
+                <button
+                  id="btn-window-morning"
+                  onClick={() => {
+                    setSelectedWindow('MORNING_11AM');
+                    saveWindowToStorage('MORNING_11AM');
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
+                    selectedWindow === 'MORNING_11AM'
+                      ? 'bg-brand-accent text-bg-warm shadow'
+                      : 'text-bg-warm hover:bg-bg-warm/5'
+                  }`}
+                >
+                  ☀️ {initialWindows.MORNING_11AM.label}
+                </button>
+                <button
+                  id="btn-window-afternoon"
+                  onClick={() => {
+                    setSelectedWindow('AFTERNOON_4PM');
+                    saveWindowToStorage('AFTERNOON_4PM');
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
+                    selectedWindow === 'AFTERNOON_4PM'
+                      ? 'bg-brand-accent text-bg-warm shadow'
+                      : 'text-bg-warm hover:bg-bg-warm/5'
+                  }`}
+                >
+                  ☕ {initialWindows.AFTERNOON_4PM.label}
+                </button>
+              </div>
+            </div>
           </div>
-          
-          {/* Delivery Window Picker */}
-          <div className="bg-bg-warm/10 p-1.5 rounded-lg flex items-center gap-1 border border-bg-warm/20">
-            <button
-              id="btn-window-morning"
-              onClick={() => {
-                setSelectedWindow('MORNING_11AM');
-                saveWindowToStorage('MORNING_11AM');
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
-                selectedWindow === 'MORNING_11AM'
-                  ? 'bg-brand-accent text-bg-warm shadow'
-                  : 'text-bg-warm hover:bg-bg-warm/5'
-              }`}
-            >
-              ☀️ {initialWindows.MORNING_11AM.label}
-            </button>
-            <button
-              id="btn-window-afternoon"
-              onClick={() => {
-                setSelectedWindow('AFTERNOON_4PM');
-                saveWindowToStorage('AFTERNOON_4PM');
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 ${
-                selectedWindow === 'AFTERNOON_4PM'
-                  ? 'bg-brand-accent text-bg-warm shadow'
-                  : 'text-bg-warm hover:bg-bg-warm/5'
-              }`}
-            >
-              ☕ {initialWindows.AFTERNOON_4PM.label}
-            </button>
-          </div>
+
+          {/* Quick Category Anchors inside Header */}
+          <nav className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none border-t border-bg-warm/10 pt-3">
+            {CATEGORIES_ORDER.map((cat) => {
+              const hasItems = (groupedItems[cat.id] || []).length > 0;
+              if (!hasItems && !dbError) return null;
+              const isActive = activeCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={(e) => scrollToCategory(cat.id, e)}
+                  className={`relative px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200 cursor-pointer shrink-0 select-none ${
+                    isActive
+                      ? 'text-brand-deep font-bold animate-none'
+                      : 'text-bg-warm/75 hover:text-bg-warm hover:bg-white/5 animate-none'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="activeCategoryPill"
+                      className="absolute inset-0 bg-brand-accent rounded-full -z-10 shadow-xs"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                  {cat.label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
       </header>
 
@@ -281,22 +383,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
             </div>
           )}
 
-          {/* Quick Category Anchors */}
-          <nav className="flex gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-brand-deep/10">
-            {CATEGORIES_ORDER.map((cat) => {
-              const hasItems = (groupedItems[cat.id] || []).length > 0;
-              if (!hasItems && !dbError) return null;
-              return (
-                <a
-                  key={cat.id}
-                  href={`#category-${cat.id}`}
-                  className="px-4 py-1.5 bg-brand-deep/5 hover:bg-brand-deep/10 rounded-full text-xs font-medium whitespace-nowrap text-brand-deep shrink-0 transition"
-                >
-                  {cat.label}
-                </a>
-              );
-            })}
-          </nav>
+
 
           {/* Menu Sections */}
           <div className="flex flex-col gap-10">
@@ -305,7 +392,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               if (items.length === 0 && !dbError) return null;
 
               return (
-                <section key={cat.id} id={`#category-${cat.id}`} className="scroll-mt-24">
+                <section key={cat.id} id={`category-${cat.id}`} className="scroll-mt-[210px] md:scroll-mt-[150px]">
                   <h2 className="text-xl font-bold border-b border-brand-deep/10 pb-2 mb-4 text-brand-deep uppercase tracking-wider text-xs">
                     {cat.label}
                   </h2>
@@ -314,9 +401,11 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                       items.map((item) => {
                         const qty = getQuantity(item.id);
                         return (
-                          <div
+                          <motion.div
                             key={item.id}
-                            className="bg-white p-4 rounded-xl shadow-xs border border-brand-deep/5 flex justify-between items-center gap-4 hover:shadow transition"
+                            whileHover={shouldReduceMotion ? {} : { scale: 1.015, y: -2 }}
+                            transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                            className="bg-white p-4 rounded-xl shadow-xs border border-brand-deep/5 flex justify-between items-center gap-4 hover:shadow-md transition-shadow duration-300"
                           >
                             <div className="flex-grow">
                               <h3 className="font-semibold text-brand-deep text-md">{item.name}</h3>
@@ -353,7 +442,7 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                                 </motion.button>
                               )}
                             </div>
-                          </div>
+                          </motion.div>
                         );
                       })
                     ) : (
@@ -540,12 +629,25 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
                 <div className="flex justify-between items-center font-bold text-brand-deep">
                   <span>Grand Total</span>
                   {cart.length > 0 ? (
-                    <AnimatedTotal value={cartTotal} />
+                    customRequest.trim() !== '' ? (
+                      <div className="text-right">
+                        <span className="text-sm font-extrabold text-brand-deep">₹{cartTotal}</span>
+                        <span className="text-[10px] text-brand-accent font-bold block mt-0.5">+ Custom TBD</span>
+                      </div>
+                    ) : (
+                      <AnimatedTotal value={cartTotal} />
+                    )
                   ) : (
                     <span className="text-xs font-semibold text-brand-accent">Price Pending</span>
                   )}
                 </div>
                 
+                {cart.length > 0 && customRequest.trim() !== '' && (
+                  <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
+                    ⚠️ Note: Canteen item price of ₹{cartTotal} is fixed. Additional charges for your custom request ("{customRequest}") will be calculated and added by the operator.
+                  </p>
+                )}
+
                 {cart.length === 0 && (
                   <p className="text-[10px] text-ink/65 bg-brand-deep/5 p-3 rounded-lg border border-brand-deep/5 leading-relaxed font-semibold">
                     ⚠️ Price will be finalized by the operator based on the original shop rates, platform convenience fees, and delivery charges.
@@ -580,7 +682,14 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
               )}
               <div className="text-lg font-bold text-brand-deep">
                 {cart.length > 0 ? (
-                  <AnimatedTotal value={cartTotal} />
+                  customRequest.trim() !== '' ? (
+                    <div className="flex flex-col items-start leading-none gap-0.5">
+                      <span className="text-sm font-extrabold">₹{cartTotal}</span>
+                      <span className="text-[9px] text-brand-accent font-extrabold tracking-tight">+ Custom TBD</span>
+                    </div>
+                  ) : (
+                    <AnimatedTotal value={cartTotal} />
+                  )
                 ) : (
                   <span className="text-sm font-bold text-brand-accent">Price Pending</span>
                 )}
@@ -667,6 +776,138 @@ export default function OrderClient({ initialMenuItems, initialWindows, dbError 
           )}
         </div>
       )}
+
+      {/* Order History Drawer Overlay */}
+      <AnimatePresence>
+        {isHistoryOpen && (
+          <>
+            {/* Dark background overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsHistoryOpen(false)}
+              className="fixed inset-0 bg-brand-deep/80 z-50 backdrop-blur-xs"
+            />
+
+            {/* Sliding Panel */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="fixed top-0 right-0 h-full w-full max-w-md bg-bg-warm z-50 shadow-2xl flex flex-col border-l border-brand-deep/10"
+            >
+              {/* Drawer Header */}
+              <div className="bg-brand-deep text-bg-warm p-5 flex items-center justify-between shadow-md">
+                <div className="flex items-center gap-2">
+                  <ClipboardList size={20} className="text-brand-accent" />
+                  <h2 className="text-lg font-bold">My Order History</h2>
+                </div>
+                <button
+                  onClick={() => setIsHistoryOpen(false)}
+                  className="p-1.5 hover:bg-white/10 rounded-lg text-bg-warm transition cursor-pointer flex items-center justify-center"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Drawer Content */}
+              <div className="flex-grow overflow-y-auto p-5 flex flex-col gap-4">
+                {isHistoryLoading ? (
+                  <div className="flex-grow flex flex-col items-center justify-center gap-2 py-12 opacity-60">
+                    <Loader2 className="animate-spin text-brand-accent" size={32} />
+                    <p className="text-sm font-semibold text-brand-deep">Loading your orders...</p>
+                  </div>
+                ) : orderHistory.length === 0 ? (
+                  <div className="flex-grow flex flex-col items-center justify-center gap-3 text-center py-12 opacity-60">
+                    <span className="text-4xl">📦</span>
+                    <div>
+                      <p className="text-sm font-bold text-brand-deep">No orders placed yet</p>
+                      <p className="text-xs text-brand-deep/60 mt-1">Your past orders will appear here. Time to order some samosas!</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {orderHistory.map((order) => {
+                      const orderDate = new Date(order.createdAt).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                      const isDelivered = order.status === 'DELIVERED';
+                      const isCancelled = order.status === 'CANCELLED';
+
+                      return (
+                        <div
+                          key={order.id}
+                          className="bg-white p-4 rounded-xl border border-brand-deep/5 shadow-xs flex flex-col gap-3"
+                        >
+                          {/* Top Row: Date & Status */}
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <p className="text-[10px] font-bold text-brand-deep/50 font-mono">
+                                ORDER #{order.id.substring(0, 8).toUpperCase()}
+                              </p>
+                              <p className="text-[11px] text-brand-deep/70 font-semibold flex items-center gap-1 mt-0.5">
+                                <Clock size={10} />
+                                {orderDate}
+                              </p>
+                            </div>
+                            <span className={`text-[9px] uppercase font-extrabold px-2 py-0.5 rounded-full border ${
+                              isDelivered
+                                ? 'bg-fresh/10 text-fresh border-fresh/20'
+                                : isCancelled
+                                ? 'bg-alert/10 text-alert border-alert/20'
+                                : 'bg-brand-accent/10 text-brand-deep border-brand-accent/20'
+                            }`}>
+                              {order.status}
+                            </span>
+                          </div>
+
+                          {/* Items summary */}
+                          <div className="bg-[#FAF9F7] p-2.5 rounded-lg border border-brand-deep/5 text-xs text-brand-deep">
+                            {order.items.map((item: any, idx: number) => (
+                              <div key={idx} className="flex justify-between font-semibold mt-0.5">
+                                <span className="truncate">{item.menuItem?.name || 'Custom Request'} <span className="opacity-60 text-[10px]">x{item.quantity}</span></span>
+                              </div>
+                            ))}
+                            {order.customRequest && (
+                              <p className="italic opacity-85 mt-1 border-t border-brand-deep/5 pt-1">
+                                💡 "{order.customRequest}"
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Price & Track Link */}
+                          <div className="flex justify-between items-center border-t border-brand-deep/5 pt-2 mt-1">
+                            <div>
+                              <span className="text-[10px] text-brand-deep/50 block">Amount Paid</span>
+                              <span className="text-sm font-extrabold text-brand-deep">
+                                {order.totalAmount > 0 ? `₹${order.totalAmount}` : 'Price Pending'}
+                              </span>
+                            </div>
+                            
+                            <Link
+                              href={`/order/track/${order.id}`}
+                              className="text-xs text-brand-accent hover:text-brand-accent/90 font-extrabold flex items-center gap-1 hover:underline cursor-pointer"
+                            >
+                              Track Order
+                              <ArrowRight size={12} />
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

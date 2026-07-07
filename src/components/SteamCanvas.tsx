@@ -97,7 +97,7 @@ export default function SteamCanvas() {
       ref={canvasRef}
       width={40}
       height={40}
-      className="pointer-events-none absolute -top-5 left-[5.5rem] z-10"
+      className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 z-10"
       title="Fresh steam"
     />
   );
